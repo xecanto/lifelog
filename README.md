@@ -42,13 +42,19 @@ Two processes, run together in local dev:
 
 ## What it can ingest
 
-| Type  | How |
-|-------|-----|
-| Text  | Paste or type directly |
-| Links | Give it a URL — it fetches and extracts the readable article text |
-| Files | PDF, Word (`.docx`), plain text/Markdown/CSV |
-| Images | Claude describes the image so it becomes searchable text |
-| Voice | Record in the browser or upload an audio file — transcribed locally |
+There's one box. Type, paste, drop a file, paste a screenshot, or hit record —
+`POST /api/capture` works out what you gave it, so you never pick a type.
+
+| Type  | Detected from |
+|-------|---------------|
+| Text  | Anything that isn't one of the below |
+| Links | The **whole** input being a single URL (a note that merely contains a link stays a note) |
+| Files | `.pdf`, `.docx`, `.txt`/`.md`/`.csv` — text is extracted |
+| Images | Extension, or the MIME type when there's no useful filename (pasted screenshots) — described so they're searchable |
+| Voice | Audio extension or MIME type — transcribed locally |
+
+The per-type endpoints (`/api/entries/text`, `/link`, `/file`, `/image`,
+`/voice`) still exist if you want to be explicit.
 
 ## Setup
 
@@ -117,7 +123,10 @@ app/                 FastAPI backend
   facets.py            Builds/normalizes facet rows from each skill's extraction
   agenda.py            What's overdue/due/upcoming, and recurring spend
   settings.py          Runtime settings (defaults in code, overrides in the DB)
+  llm.py               One interface over Claude/OpenAI/Gemini/Grok/DeepSeek
   selfmod.py           Self-modification: authors skills, runs the coding agent
+  reflect.py           Reviews usage and proposes what's missing
+  ingest/capture.py     Works out whether an input is text, a link, a file, ...
   search.py            Ask: FTS5 retrieval + Claude answer with citations
   graph.py             Builds the knowledge graph (entries + tags + TF-IDF edges)
   skills.py            Loads skills/*.md from disk (no hardcoded skill list)
@@ -130,7 +139,7 @@ data/                  SQLite DB + uploaded files (git-ignored, created at runti
 
 web/                  Next.js frontend (App Router)
   app/
-    add/                 /add/{text,link,file,image,voice} -- one real route per capture type
+    add/                 One box: type, paste, drop a file, or record
     library/             /library list + /library/[id] full-page entry detail
     @modal/(.)library/[id]/  Intercepted route: same URL, rendered as a modal when
                               navigated to from inside the app (proper back-stack --
@@ -316,6 +325,41 @@ Settings (all on `/system`, stored in the database):
 Note that a code job edits files while the app is running, so a dev server
 with `--reload` will restart mid-job. The job returns you to your original
 branch when it finishes, so the final state is whatever you had before.
+
+## Learning from use
+
+Every capture, question, and action is recorded in an `events` table.
+**Review my activity** on `/system` (or `POST /api/reflect`) reads those
+signals and proposes what's missing, filing each proposal as an ordinary
+modification job — so the same settings decide whether it runs or waits.
+Reflection never writes files itself.
+
+The signal that matters most isn't the obvious one. Falling through to the
+`general` skill, or a question returning no sources, both detect the app
+*failing* — and in practice it rarely fails that way. It assigns a plausible
+skill and everything looks fine.
+
+The gap that actually shows up is **a repeated subject scattered across
+several loosely-fitting skills**. Four job applications filed as a task, an
+event, a contact and a journal entry are each correct on their own; only
+together do they read as a missing skill, and only then is it clear you can't
+ask "which applications am I waiting on?". So recent entries are handed over
+with their assigned skill, and the prompt points at that pattern specifically.
+
+Reflection is capped at 3 proposals, won't run under 5 entries, and is told
+that proposing nothing is the right answer when nothing stands out — a bad
+proposal costs real review time.
+
+## Tests
+
+```sh
+.venv\Scripts\python -m pytest
+```
+
+142 tests, no network access and no API key needed — every provider call is
+stubbed and each test gets its own SQLite file. The self-modification code
+tier is tested against a throwaway git repo with a fake agent, so the branch
+isolation is verified rather than assumed.
 
 ## The knowledge graph
 
