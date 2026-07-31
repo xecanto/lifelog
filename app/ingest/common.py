@@ -1,5 +1,32 @@
-from app import db
+from app import db, selfmod
 from app.organize import organize
+
+# The skill whose facets describe a change to the app itself.
+FEATURE_REQUEST_KIND = "feature-request"
+
+
+def _queue_modification(entry_id: int, facet: dict) -> None:
+    """Turn a feature-request facet into a modification job.
+
+    Always creates the job; app/settings.py decides whether it runs now or
+    waits for the user. A failure here must never lose the captured entry,
+    which is the thing the user actually asked to save.
+    """
+    data = facet.get("data") or {}
+    prompt = (data.get("change_prompt") or "").strip()
+    if not prompt:
+        return
+    kind = data.get("change_kind") if data.get("change_kind") in ("skill", "code") else "code"
+    try:
+        selfmod.create_request(
+            title=(data.get("change_title") or facet.get("label") or "").strip(),
+            prompt=prompt,
+            kind=kind,
+            origin="capture",
+            entry_id=entry_id,
+        )
+    except Exception:
+        pass
 
 
 def create_entry(
@@ -41,5 +68,7 @@ def create_entry(
 
     for facet in meta.get("facets", []):
         db.insert_facet(entry_id=entry_id, **facet)
+        if facet.get("kind") == FEATURE_REQUEST_KIND:
+            _queue_modification(entry_id, facet)
 
     return db.get_entry(entry_id)

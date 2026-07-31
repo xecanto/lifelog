@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import db, skills
+from app import db, selfmod, settings, skills
 from app.agenda import build_agenda, spend_summary
 from app.claude_client import MissingAPIKeyError
 from app.config import AGENDA_DEFAULT_DAYS, CORS_ORIGINS, DATA_DIR
@@ -210,6 +210,89 @@ def update_facet(facet_id: int, payload: FacetStatusIn) -> dict:
     if not updated:
         raise HTTPException(status_code=404, detail="Facet not found")
     return db.get_facet(facet_id)
+
+
+# ---------------------------------------------------------------------------
+# Settings and self-modification
+#
+# A modification request always becomes a job. The settings decide only
+# whether it runs now or waits as `pending` for the user to run by hand.
+# ---------------------------------------------------------------------------
+
+
+class SettingsIn(BaseModel):
+    values: dict[str, object]
+
+
+class ModificationIn(BaseModel):
+    prompt: str
+    title: str = ""
+    kind: str = "code"
+
+
+@app.get("/api/settings")
+def get_settings() -> dict:
+    return {"settings": settings.describe()}
+
+
+@app.patch("/api/settings")
+def patch_settings(payload: SettingsIn) -> dict:
+    try:
+        settings.set_many(payload.values)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"settings": settings.describe()}
+
+
+@app.get("/api/system")
+def get_system_status() -> dict:
+    return selfmod.status()
+
+
+@app.get("/api/modifications")
+def get_modifications(status: str | None = None, limit: int = 100, offset: int = 0) -> dict:
+    return {"jobs": db.list_jobs(status=status, limit=limit, offset=offset)}
+
+
+@app.get("/api/modifications/{job_id}")
+def get_modification(job_id: int) -> dict:
+    job = db.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@app.post("/api/modifications")
+def create_modification(payload: ModificationIn) -> dict:
+    return _handle(
+        selfmod.create_request,
+        title=payload.title,
+        prompt=payload.prompt,
+        kind=payload.kind,
+    )
+
+
+@app.post("/api/modifications/{job_id}/run")
+def run_modification(job_id: int) -> dict:
+    """Run a pending job now, regardless of the auto-run settings.
+
+    This is the manual path: the user looked at the prompt and chose to run
+    it, which is a stronger signal than any setting.
+    """
+    if not db.get_job(job_id):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return _handle(selfmod.start_job, job_id)
+
+
+@app.post("/api/modifications/{job_id}/cancel")
+def cancel_modification(job_id: int) -> dict:
+    job = db.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Only pending jobs can be cancelled (this one is {job['status']})")
+    db.update_job(job_id, status="cancelled", finished_at=db.now_iso())
+    return db.get_job(job_id)
 
 
 # ---------------------------------------------------------------------------
