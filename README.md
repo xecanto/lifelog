@@ -22,8 +22,10 @@ Two processes, run together in local dev:
 ## Design choices
 
 - **Local-first storage** — everything lives in a SQLite database and a
-  `data/storage/` folder on your machine. Nothing is sent anywhere except the
-  text/images that are processed by the Claude API.
+  `data/storage/` folder on your machine. The only thing that leaves is the
+  text/images sent to whichever model provider you've configured.
+- **Provider-agnostic** — Claude, OpenAI, Gemini, Grok, or DeepSeek, switchable
+  at runtime. See [Model providers](#model-providers).
 - **Nothing is hardcoded** — see [Dynamic skills](#dynamic-skills-nothing-hardcoded) below. The
   system prompts live under `prompts/*.md`, and the "skills" that decide how
   each entry gets organized live under `skills/*.md`. Both are read from disk
@@ -62,12 +64,15 @@ copy .env.example .env      # Windows
 # cp .env.example .env        # macOS/Linux
 ```
 
-Edit `.env` and set `ANTHROPIC_API_KEY=sk-ant-...`. Get a key at
-[platform.claude.com](https://platform.claude.com).
+Edit `.env` and set a key for whichever provider you want to use — e.g.
+`ANTHROPIC_API_KEY=sk-ant-...` from [platform.claude.com](https://platform.claude.com).
+Any of Claude, OpenAI, Gemini, Grok, or DeepSeek works; see
+[Model providers](#model-providers) for the full list and their env vars.
 
-By default the app uses `claude-opus-5` for organizing and answering. If
-you're processing a lot of entries and want to cut cost, set
-`LIFELOG_MODEL=claude-sonnet-5` or `claude-haiku-4-5` in `.env`.
+`LIFELOG_PROVIDER` and `LIFELOG_MODEL` set the defaults, and both are
+switchable at runtime on the `/system` page. Leaving `LIFELOG_MODEL` blank
+uses the provider's own default (`claude-opus-5` for Anthropic) — set
+`claude-sonnet-5` or `claude-haiku-4-5` to cut cost on high volumes.
 
 Run it:
 
@@ -229,6 +234,45 @@ that `PATCH /api/facets/{id}` to take an item off the list.
 The same applies to prompts: `prompts/organize_base.md`, `ask_system.md`,
 `skill_selector.md`, and `image_describe.md` are plain text, loaded fresh on
 every request -- edit tone, persona, or instructions without touching code.
+
+## Model providers
+
+Everything that talks to a model goes through [`app/llm.py`](app/llm.py), so
+the provider is a setting on `/system`, not a code change.
+
+| Provider | Key env var | Structured output | Images |
+|----------|-------------|-------------------|--------|
+| `anthropic` | `ANTHROPIC_API_KEY` | enforced schema | yes |
+| `openai` | `OPENAI_API_KEY` | enforced schema | yes |
+| `gemini` | `GEMINI_API_KEY` | enforced schema | yes |
+| `grok` | `XAI_API_KEY` | enforced schema | yes |
+| `deepseek` | `DEEPSEEK_API_KEY` | JSON only, shape not enforced | no |
+
+**Keys are read from the environment only.** They are never written to the
+database and never returned by the API — the UI is told whether a key is
+present, never what it is.
+
+The app depends heavily on structured output, and that's the thing that
+actually differs between providers. Where a provider can't enforce a schema
+server-side, the schema is written into the system prompt instead and the
+response is parsed leniently (markdown fences, prose around the object), so a
+weaker provider degrades in quality rather than breaking. Image capture on a
+provider without vision fails with a clear message instead of a confusing API
+error.
+
+### Custom endpoints
+
+`Custom API base URL` points a provider at a gateway, reseller, proxy, or a
+local server that speaks the same protocol — for example an
+Anthropic-compatible gateway that isn't `api.anthropic.com`, or a local
+OpenAI-compatible server.
+
+It is stored **per provider**, so switching provider can't send requests to
+the wrong API.
+
+Whoever operates that endpoint sees everything you capture — which, in this
+app, means account emails, spending, and personal documents. Only point it at
+something you'd trust with that.
 
 ## Self-modification
 
