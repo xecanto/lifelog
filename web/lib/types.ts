@@ -97,6 +97,28 @@ export interface Setting {
   type: "bool" | "int" | "str";
   label: string;
   description: string;
+  /** When present, the allowed values for this setting. */
+  choices: string[] | null;
+}
+
+export interface Provider {
+  id: string;
+  label: string;
+  default_model: string;
+  suggested_models: string[];
+  /** Env var names checked for this provider's key, in order. */
+  api_key_env: string[];
+  /** Whether a key is configured. The key itself is never sent. */
+  has_key: boolean;
+  structured_output: "schema" | "json_object" | "prompt";
+  vision: boolean;
+  active: boolean;
+  base_url: string;
+}
+
+export interface ProvidersResponse {
+  providers: Provider[];
+  active: { provider: string; model: string };
 }
 
 export interface SystemStatus {

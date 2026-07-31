@@ -12,6 +12,7 @@ import type {
   JobKind,
   JobStatus,
   ModificationJob,
+  ProvidersResponse,
   Setting,
   Skill,
   SystemStatus,
@@ -94,6 +95,8 @@ export const api = {
   ask: (question: string) => request<AskResponse>("/api/ask", { method: "POST", body: JSON.stringify({ question }) }),
 
   systemStatus: () => request<SystemStatus>("/api/system"),
+
+  listProviders: () => request<ProvidersResponse>("/api/providers"),
 
   listSettings: () => request<{ settings: Setting[] }>("/api/settings"),
 

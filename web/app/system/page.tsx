@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { JobKind, ModificationJob, Setting, SystemStatus } from "@/lib/types";
+import type { JobKind, ModificationJob, Provider, Setting, SystemStatus } from "@/lib/types";
 import JobCard from "@/components/JobCard";
 import StatusMessage from "@/components/StatusMessage";
 import { primaryBtn, textInput } from "@/lib/ui";
@@ -34,6 +34,20 @@ function SettingRow({
             onChange={(e) => onChange(setting.key, e.target.checked)}
             className="mt-0.5 size-5 shrink-0 accent-accent cursor-pointer disabled:cursor-default"
           />
+        ) : setting.choices ? (
+          <select
+            id={setting.key}
+            value={String(setting.value)}
+            disabled={disabled}
+            onChange={(e) => onChange(setting.key, e.target.value)}
+            className="w-52 shrink-0 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          >
+            {setting.choices.map((choice) => (
+              <option key={choice} value={choice}>
+                {choice}
+              </option>
+            ))}
+          </select>
         ) : (
           <input
             id={setting.key}
@@ -51,8 +65,37 @@ function SettingRow({
   );
 }
 
+function ProviderGrid({ providers }: { providers: Provider[] }) {
+  return (
+    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+      {providers.map((p) => (
+        <div
+          key={p.id}
+          className={`rounded-lg border p-2.5 text-xs ${
+            p.active ? "border-accent bg-accent-soft" : "border-border"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold">{p.label}</span>
+            <span className={p.has_key ? "text-accent" : "text-muted"}>
+              {p.has_key ? "key set" : `no ${p.api_key_env[0]}`}
+            </span>
+          </div>
+          <p className="mt-1 text-muted">
+            {p.vision ? "reads images" : "no image support"}
+            {" · "}
+            {p.structured_output === "schema" ? "enforces schemas" : "JSON only, schema not enforced"}
+          </p>
+          <p className="mt-0.5 text-muted">default: {p.default_model}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function SystemPage() {
   const [settings, setSettings] = useState<Setting[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [jobs, setJobs] = useState<ModificationJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,14 +107,16 @@ export default function SystemPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const refresh = useCallback(async () => {
-    const [settingsRes, statusRes, jobsRes] = await Promise.all([
+    const [settingsRes, statusRes, jobsRes, providersRes] = await Promise.all([
       api.listSettings(),
       api.systemStatus(),
       api.listModifications(),
+      api.listProviders(),
     ]);
     setSettings(settingsRes.settings);
     setStatus(statusRes);
     setJobs(jobsRes.jobs);
+    setProviders(providersRes.providers);
   }, []);
 
   useEffect(() => {
@@ -109,7 +154,9 @@ export default function SystemPage() {
     try {
       const res = await api.updateSettings({ [key]: value });
       setSettings(res.settings);
-      setStatus(await api.systemStatus());
+      const [statusRes, providersRes] = await Promise.all([api.systemStatus(), api.listProviders()]);
+      setStatus(statusRes);
+      setProviders(providersRes.providers);
       setMessage({ text: "Saved.", kind: "success" });
     } catch (err) {
       setMessage({ text: err instanceof ApiError ? err.message : "Could not save.", kind: "error" });
@@ -144,11 +191,34 @@ export default function SystemPage() {
   const enabled = Boolean(settings.find((s) => s.key === "self_modification_enabled")?.value);
   const pending = jobs.filter((j) => j.status === "pending");
   const rest = jobs.filter((j) => j.status !== "pending");
+  const modelSettings = settings.filter((s) => s.key.startsWith("llm_"));
+  const selfModSettings = settings.filter((s) => !s.key.startsWith("llm_"));
+  const active = providers.find((p) => p.active);
 
   if (loading) return <p className="text-sm text-muted">Loading...</p>;
 
   return (
     <div>
+      <section className="mb-6 rounded-[10px] border border-border bg-surface p-4 shadow-sm">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Model</h2>
+        <p className="mt-1.5 text-sm text-muted">
+          Which API the assistant thinks with. Keys are read from <code>.env</code> only — they are never
+          stored here or sent back to this page.
+        </p>
+        {active && !active.has_key && (
+          <p className="mt-1.5 text-sm text-danger">
+            {active.label} is selected but no key is set. Add {active.api_key_env[0]} to .env and restart the
+            backend.
+          </p>
+        )}
+        <ProviderGrid providers={providers} />
+        <div className="mt-2">
+          {modelSettings.map((setting) => (
+            <SettingRow key={setting.key} setting={setting} onChange={saveSetting} />
+          ))}
+        </div>
+      </section>
+
       <section className="mb-6 rounded-[10px] border border-border bg-surface p-4 shadow-sm">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Self-modification</h2>
         <p className="mt-1.5 text-sm text-muted">
@@ -157,7 +227,7 @@ export default function SystemPage() {
             : "Requests are saved as pending jobs. Nothing runs until you run it."}
         </p>
         <div className="mt-2">
-          {settings.map((setting) => (
+          {selfModSettings.map((setting) => (
             <SettingRow
               key={setting.key}
               setting={setting}
