@@ -2,22 +2,25 @@
 
 Two Claude calls, both schema/prompt-driven from disk (nothing hardcoded):
 
-1. Skill selection -- a cheap, low-effort call shown only {id, description}
+1. Skill routing -- a cheap, low-effort call shown only {id, description}
    for every skill (skills.skills_menu). Progressive disclosure: the full
    instructions and extra schema for a skill are never sent unless it's
-   picked.
-2. Extraction -- once a skill is picked, its full instructions and
-   extra_schema are merged into the request so the model can fill
-   skill-specific fields (e.g. a recipe's ingredients/steps) alongside the
-   universal title/summary/category/tags.
+   picked. This returns a *set* of skills, not one: a single note can be an
+   account, a subscription, and a reminder at the same time.
+2. Extraction -- one call whose schema nests each selected skill's
+   extra_schema under `facets.<skill_id>`, so every facet is filled in from
+   the same reading of the content, with the fields kept separate. Each of
+   those becomes a facet row (see app/facets.py).
 """
 
 import json
+from datetime import datetime
 
 from app.claude_client import first_text, get_client
-from app.config import MODEL, ORGANIZE_TEXT_LIMIT
+from app.config import MAX_SKILLS_PER_ENTRY, MODEL, ORGANIZE_TEXT_LIMIT
+from app.facets import LABEL_FIELD, LABEL_SCHEMA, build_facet
 from app.prompts import load_prompt
-from app.skills import GENERAL_SKILL_ID, get_skill, skills_menu
+from app.skills import GENERAL_SKILL_ID, Skill, get_skill, skills_menu
 
 BASE_PROPERTIES = {
     "title": {
@@ -45,28 +48,52 @@ BASE_PROPERTIES = {
 BASE_REQUIRED = ["title", "summary", "category", "tags"]
 
 
+def _today_context() -> str:
+    """Relative dates are useless to the model unless it knows what day it is.
+
+    "remind me Friday" / "renews on the 5th" are the common case for
+    reminders and subscriptions, so this is load-bearing for the agenda.
+    """
+    now = datetime.now().astimezone()
+    return f"Today is {now.strftime('%A, %d %B %Y')} ({now.strftime('%Y-%m-%d')})."
+
+
+# ---------------------------------------------------------------------------
+# 1. Routing
+# ---------------------------------------------------------------------------
+
+
 def _skill_select_schema(ids: list[str]) -> dict:
     return {
         "type": "object",
-        "properties": {"skill_id": {"type": "string", "enum": ids}},
-        "required": ["skill_id"],
+        "properties": {
+            "skill_ids": {
+                "type": "array",
+                "items": {"type": "string", "enum": ids},
+                "description": (
+                    "Every skill that genuinely applies to this content, most central "
+                    f"first. Usually 1-3, never more than {MAX_SKILLS_PER_ENTRY}."
+                ),
+            }
+        },
+        "required": ["skill_ids"],
         "additionalProperties": False,
     }
 
 
-def _select_skill(raw_text: str, source_type: str) -> str:
+def _select_skills(raw_text: str, source_type: str) -> list[str]:
     menu = skills_menu(source_type)
     if not menu:
-        return GENERAL_SKILL_ID
+        return [GENERAL_SKILL_ID]
     ids = [s["id"] for s in menu]
     if len(ids) == 1:
-        return ids[0]
+        return ids
 
     menu_text = "\n".join(f"- {s['id']}: {s['description']}" for s in menu)
     client = get_client()
     response = client.messages.create(
         model=MODEL,
-        max_tokens=200,
+        max_tokens=300,
         system=load_prompt("skill_selector"),
         output_config={
             "format": {"type": "json_schema", "schema": _skill_select_schema(ids)},
@@ -75,24 +102,57 @@ def _select_skill(raw_text: str, source_type: str) -> str:
         messages=[
             {
                 "role": "user",
-                "content": f"Skills:\n{menu_text}\n\nContent (may be truncated):\n\"\"\"\n{raw_text[:2000]}\n\"\"\"",
+                "content": (
+                    f"{_today_context()}\n\nSkills:\n{menu_text}\n\n"
+                    f'Content (may be truncated):\n"""\n{raw_text[:2000]}\n"""'
+                ),
             }
         ],
     )
 
     if response.stop_reason == "refusal":
-        return GENERAL_SKILL_ID
+        return [GENERAL_SKILL_ID]
     try:
         data = json.loads(first_text(response.content))
-        picked = data.get("skill_id")
-        return picked if picked in ids else GENERAL_SKILL_ID
-    except (json.JSONDecodeError, TypeError):
-        return GENERAL_SKILL_ID
+        picked = [s for s in data.get("skill_ids", []) if s in ids]
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return [GENERAL_SKILL_ID]
+
+    deduped = list(dict.fromkeys(picked))[:MAX_SKILLS_PER_ENTRY]
+    return deduped or [GENERAL_SKILL_ID]
 
 
-def _build_schema(extra_schema: dict) -> dict:
-    properties = {**BASE_PROPERTIES, **extra_schema}
-    required = BASE_REQUIRED + [k for k in extra_schema if k not in BASE_REQUIRED]
+# ---------------------------------------------------------------------------
+# 2. Extraction
+# ---------------------------------------------------------------------------
+
+
+def _facet_schema(skill: Skill) -> dict:
+    fields = {LABEL_FIELD: LABEL_SCHEMA, **skill.extra_schema}
+    return {
+        "type": "object",
+        "properties": fields,
+        "required": list(fields),
+        "additionalProperties": False,
+    }
+
+
+def _build_schema(selected: list[Skill]) -> dict:
+    properties = dict(BASE_PROPERTIES)
+    required = list(BASE_REQUIRED)
+
+    # Skills with no extra_schema (e.g. `general`) are pure categorization --
+    # they're recorded on the entry itself and don't need a facet row.
+    facet_props = {s.id: _facet_schema(s) for s in selected if s.extra_schema}
+    if facet_props:
+        properties["facets"] = {
+            "type": "object",
+            "properties": facet_props,
+            "required": list(facet_props),
+            "additionalProperties": False,
+        }
+        required.append("facets")
+
     return {
         "type": "object",
         "properties": properties,
@@ -101,14 +161,23 @@ def _build_schema(extra_schema: dict) -> dict:
     }
 
 
-def _fallback(raw_text: str, skill_id: str) -> dict:
+def _build_system_prompt(selected: list[Skill]) -> str:
+    parts = [load_prompt("organize_base")]
+    for skill in selected:
+        if skill.instructions:
+            parts.append(f"---\nSkill `{skill.id}`:\n{skill.instructions}")
+    return "\n\n".join(parts)
+
+
+def _fallback(raw_text: str, skill_ids: list[str]) -> dict:
     return {
         "title": (raw_text[:60] or "Untitled entry").strip(),
         "summary": "",
         "category": "Other",
         "tags": [],
-        "skill": skill_id,
-        "extra": {},
+        "skill": skill_ids[0] if skill_ids else GENERAL_SKILL_ID,
+        "skills": skill_ids or [GENERAL_SKILL_ID],
+        "facets": [],
     }
 
 
@@ -119,21 +188,21 @@ def organize(
     source_hint: str = "",
     existing_categories: list[str] | None = None,
 ) -> dict:
-    """Select a skill, then extract structured metadata using it.
+    """Route to one or more skills, then extract all of them in one pass.
 
-    Returns a dict with title/summary/category/tags plus `skill` (the id of
-    the skill that was used) and `extra` (any skill-specific fields).
+    Returns title/summary/category/tags plus `skill` (the primary skill id),
+    `skills` (every skill that applied) and `facets` (ready-to-insert facet
+    rows, already normalized).
     """
     truncated = raw_text[:ORGANIZE_TEXT_LIMIT]
-    skill_id = _select_skill(truncated, source_type)
-    skill = get_skill(skill_id) or get_skill(GENERAL_SKILL_ID)
-    if skill is None:
-        return _fallback(raw_text, skill_id)
+    skill_ids = _select_skills(truncated, source_type)
 
-    schema = _build_schema(skill.extra_schema)
-    system_prompt = load_prompt("organize_base")
-    if skill.instructions:
-        system_prompt = f"{system_prompt}\n\n---\nSelected skill: {skill.id}\n{skill.instructions}"
+    selected = [s for s in (get_skill(i) for i in skill_ids) if s is not None]
+    if not selected:
+        general = get_skill(GENERAL_SKILL_ID)
+        if general is None:
+            return _fallback(raw_text, skill_ids)
+        selected = [general]
 
     category_hint = ""
     if existing_categories:
@@ -143,36 +212,47 @@ def organize(
         )
 
     user_content = (
-        f"{source_hint}\n\nContent to organize:\n\"\"\"\n{truncated}\n\"\"\"{category_hint}"
+        f"{_today_context()}\n\n{source_hint}\n\n"
+        f'Content to organize:\n"""\n{truncated}\n"""{category_hint}'
     ).strip()
 
     client = get_client()
     response = client.messages.create(
         model=MODEL,
-        max_tokens=1536,
-        system=system_prompt,
+        max_tokens=4096,
+        system=_build_system_prompt(selected),
         output_config={
-            "format": {"type": "json_schema", "schema": schema},
-            "effort": "low",
+            "format": {"type": "json_schema", "schema": _build_schema(selected)},
+            "effort": "medium",
         },
         messages=[{"role": "user", "content": user_content}],
     )
 
+    ids = [s.id for s in selected]
     if response.stop_reason == "refusal":
-        return _fallback(raw_text, skill_id)
+        return _fallback(raw_text, ids)
 
-    text = first_text(response.content)
     try:
-        data = json.loads(text)
+        data = json.loads(first_text(response.content))
     except (json.JSONDecodeError, TypeError):
-        return _fallback(raw_text, skill_id)
+        return _fallback(raw_text, ids)
 
     data.setdefault("title", "Untitled entry")
     data.setdefault("summary", "")
     data.setdefault("category", "Other")
     data.setdefault("tags", [])
 
-    extra = {k: data.pop(k) for k in list(skill.extra_schema) if k in data}
-    data["skill"] = skill_id
-    data["extra"] = extra
+    raw_facets = data.pop("facets", None) or {}
+    facets = []
+    for skill in selected:
+        extracted = raw_facets.get(skill.id)
+        if not isinstance(extracted, dict):
+            continue
+        facet = build_facet(skill, extracted)
+        if facet:
+            facets.append(facet)
+
+    data["skill"] = ids[0]
+    data["skills"] = ids
+    data["facets"] = facets
     return data

@@ -33,6 +33,11 @@ class Skill:
     description: str
     applies_to: list[str] = field(default_factory=list)
     extra_schema: dict = field(default_factory=dict)
+    # Maps a queryable facet column -> the name of one of this skill's
+    # extra_schema fields, e.g. {"due_at": "next_renewal", "amount": "cost"}.
+    # This is how a skill opts its data into the agenda and cross-kind
+    # queries without any Python knowing the skill exists.
+    promote: dict[str, str] = field(default_factory=dict)
     instructions: str = ""
 
 
@@ -49,6 +54,7 @@ def _parse_skill_file(path) -> Skill | None:
         description=meta.get("description", ""),
         applies_to=meta.get("applies_to") or ["text", "link", "file", "image", "voice"],
         extra_schema=meta.get("extra_schema") or {},
+        promote=meta.get("promote") or {},
         instructions=body.strip(),
     )
 

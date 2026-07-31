@@ -40,6 +40,14 @@ GRAPH_MAX_NEIGHBORS = 5
 # the cost of the one-time organize call.
 ORGANIZE_TEXT_LIMIT = 12000
 
+# A capture can match several skills at once (an account + a subscription +
+# a reminder). This caps how many are extracted in one pass, to bound both
+# the schema size and the cost of the extraction call.
+MAX_SKILLS_PER_ENTRY = int(os.environ.get("LIFELOG_MAX_SKILLS", "4"))
+
+# Default look-ahead window for /api/agenda, in days.
+AGENDA_DEFAULT_DAYS = int(os.environ.get("LIFELOG_AGENDA_DAYS", "30"))
+
 # How many candidate entries to pull from full-text search before handing
 # them to Claude to answer a question.
 SEARCH_CANDIDATE_LIMIT = 12

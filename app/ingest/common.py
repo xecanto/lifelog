@@ -21,7 +21,9 @@ def create_entry(
         existing_categories=existing_categories,
     )
 
-    combined_metadata = {**(metadata or {}), **meta.get("extra", {})}
+    # `skills` records every skill that fired; `skill` stays the primary one
+    # so existing callers and the library UI keep working unchanged.
+    combined_metadata = {**(metadata or {}), "skills": meta.get("skills", [])}
 
     entry_id = db.insert_entry(
         source_type=source_type,
@@ -36,4 +38,8 @@ def create_entry(
         original_filename=original_filename,
         metadata=combined_metadata,
     )
+
+    for facet in meta.get("facets", []):
+        db.insert_facet(entry_id=entry_id, **facet)
+
     return db.get_entry(entry_id)
