@@ -5,8 +5,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app import db, skills
+from app.agenda import build_agenda, spend_summary
 from app.claude_client import MissingAPIKeyError
-from app.config import CORS_ORIGINS, DATA_DIR
+from app.config import AGENDA_DEFAULT_DAYS, CORS_ORIGINS, DATA_DIR
 from app.graph import build_graph
 from app.ingest.files import ingest_file
 from app.ingest.images import ingest_image
@@ -165,6 +166,50 @@ def get_skills() -> dict:
 @app.post("/api/ask")
 def ask(payload: AskIn) -> dict:
     return _handle(ask_question, payload.question)
+
+
+# ---------------------------------------------------------------------------
+# Facets -- the structured records extracted from entries (subscriptions,
+# accounts, reminders, ...). One entry can produce several.
+# ---------------------------------------------------------------------------
+
+
+class FacetStatusIn(BaseModel):
+    status: str
+
+
+@app.get("/api/agenda")
+def get_agenda(days: int = AGENDA_DEFAULT_DAYS) -> dict:
+    if days < 0 or days > 3650:
+        raise HTTPException(status_code=400, detail="days must be between 0 and 3650")
+    return build_agenda(days)
+
+
+@app.get("/api/facets")
+def get_facets(
+    kind: str | None = None,
+    status: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+) -> dict:
+    facets = db.list_facets(kind=kind, status=status, limit=limit, offset=offset)
+    return {"facets": facets, "spend": spend_summary(facets)}
+
+
+@app.get("/api/facet-kinds")
+def get_facet_kinds() -> dict:
+    return {"kinds": db.list_facet_kinds()}
+
+
+@app.patch("/api/facets/{facet_id}")
+def update_facet(facet_id: int, payload: FacetStatusIn) -> dict:
+    try:
+        updated = db.set_facet_status(facet_id, payload.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Facet not found")
+    return db.get_facet(facet_id)
 
 
 # ---------------------------------------------------------------------------
