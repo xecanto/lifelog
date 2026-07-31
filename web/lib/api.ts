@@ -1,8 +1,13 @@
 import type {
+  Agenda,
   AskResponse,
   CategoryCount,
   Entry,
   EntryListResponse,
+  Facet,
+  FacetKind,
+  FacetListResponse,
+  FacetStatus,
   GraphData,
   Skill,
 } from "./types";
@@ -66,6 +71,20 @@ export const api = {
   listCategories: () => request<{ categories: CategoryCount[] }>("/api/categories"),
 
   listSkills: () => request<{ skills: Skill[] }>("/api/skills"),
+
+  agenda: (days?: number) => request<Agenda>(`/api/agenda${days ? `?days=${days}` : ""}`),
+
+  listFacets: (params: { kind?: string; status?: FacetStatus } = {}) => {
+    const search = new URLSearchParams();
+    if (params.kind) search.set("kind", params.kind);
+    if (params.status) search.set("status", params.status);
+    return request<FacetListResponse>(`/api/facets?${search}`);
+  },
+
+  listFacetKinds: () => request<{ kinds: FacetKind[] }>("/api/facet-kinds"),
+
+  setFacetStatus: (id: number, status: FacetStatus) =>
+    request<Facet>(`/api/facets/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
 
   ask: (question: string) => request<AskResponse>("/api/ask", { method: "POST", body: JSON.stringify({ question }) }),
 

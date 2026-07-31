@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, mediaUrl } from "@/lib/api";
-import type { Entry } from "@/lib/types";
+import type { Entry, Facet } from "@/lib/types";
 import { secondaryBtn } from "@/lib/ui";
+import FieldList from "@/components/FieldList";
+import { formatDue, formatMoney, relativeDue } from "@/lib/format";
 
 const SOURCE_LABEL: Record<string, string> = {
   text: "Note",
@@ -14,36 +16,48 @@ const SOURCE_LABEL: Record<string, string> = {
   voice: "Voice",
 };
 
-const HIDDEN_METADATA_KEYS = new Set(["extension", "page_title"]);
+// `skills` is rendered as badges above; the rest are storage details.
+const HIDDEN_METADATA_KEYS = new Set(["extension", "page_title", "skills"]);
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function MetaValue({ value }: { value: unknown }) {
-  if (Array.isArray(value)) {
-    if (!value.length) return <span className="text-muted">—</span>;
-    return (
-      <ul className="list-disc space-y-0.5 pl-5">
-        {value.map((v, i) => (
-          <li key={i}>{String(v)}</li>
-        ))}
-      </ul>
-    );
-  }
-  if (value === null || value === undefined || value === "") return <span className="text-muted">—</span>;
-  return <span>{String(value)}</span>;
-}
-
-function titleCase(key: string): string {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+function FacetPanel({ facet }: { facet: Facet }) {
+  return (
+    <div className="rounded-lg border border-border p-3.5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent">{facet.kind}</span>
+        {facet.due_at && (
+          <span className="text-xs text-muted">
+            {formatDue(facet.due_at)} · {relativeDue(facet.due_at)}
+          </span>
+        )}
+      </div>
+      {facet.label && <p className="mt-1.5 text-sm font-semibold">{facet.label}</p>}
+      {facet.amount !== null && (
+        <p className="mt-0.5 text-sm text-muted">
+          {formatMoney(facet.amount, facet.currency)}
+          {facet.cadence && facet.cadence !== "one-time" ? ` / ${facet.cadence}` : ""}
+        </p>
+      )}
+      {facet.status !== "open" && <p className="mt-0.5 text-xs text-muted">Marked {facet.status}</p>}
+      <div className="mt-2">
+        <FieldList fields={facet.data} />
+      </div>
+    </div>
+  );
 }
 
 export default function EntryDetail({ entry, mode }: { entry: Entry; mode: "page" | "modal" }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
 
-  const extraMetadata = Object.entries(entry.metadata || {}).filter(([key]) => !HIDDEN_METADATA_KEYS.has(key));
+  const facets = entry.facets ?? [];
+  const skills = Array.isArray(entry.metadata?.skills) ? (entry.metadata.skills as string[]) : [entry.skill];
+  const hasVisibleMetadata = Object.entries(entry.metadata || {}).some(
+    ([key, value]) => !HIDDEN_METADATA_KEYS.has(key) && value !== null && value !== "" && value !== undefined
+  );
 
   async function handleDelete() {
     if (!confirm("Delete this entry? This can't be undone.")) return;
@@ -71,7 +85,11 @@ export default function EntryDetail({ entry, mode }: { entry: Entry; mode: "page
         <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted">
           {SOURCE_LABEL[entry.source_type] || entry.source_type}
         </span>
-        <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted">{entry.skill}</span>
+        {skills.map((skill) => (
+          <span key={skill} className="rounded-full border border-border px-2 py-0.5 text-xs text-muted">
+            {skill}
+          </span>
+        ))}
         <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted">{formatDate(entry.created_at)}</span>
         {entry.tags.map((tag) => (
           <span key={tag} className="rounded-full border border-border px-2 py-0.5 text-xs text-muted">
@@ -97,17 +115,18 @@ export default function EntryDetail({ entry, mode }: { entry: Entry; mode: "page
 
       {entry.summary && <p className="mt-4 text-[0.95rem] italic text-muted">{entry.summary}</p>}
 
-      {extraMetadata.length > 0 && (
-        <dl className="mt-4 space-y-2 rounded-lg border border-border p-3.5 text-sm">
-          {extraMetadata.map(([key, value]) => (
-            <div key={key}>
-              <dt className="text-xs font-semibold uppercase tracking-wide text-muted">{titleCase(key)}</dt>
-              <dd className="mt-0.5">
-                <MetaValue value={value} />
-              </dd>
-            </div>
+      {facets.length > 0 && (
+        <div className="mt-4 flex flex-col gap-2.5">
+          {facets.map((facet) => (
+            <FacetPanel key={facet.id} facet={facet} />
           ))}
-        </dl>
+        </div>
+      )}
+
+      {hasVisibleMetadata && (
+        <div className="mt-4 rounded-lg border border-border p-3.5">
+          <FieldList fields={entry.metadata || {}} hide={HIDDEN_METADATA_KEYS} />
+        </div>
       )}
 
       <div className="mt-4 whitespace-pre-wrap text-[0.94rem] leading-relaxed">{entry.raw_text}</div>
