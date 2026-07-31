@@ -1,4 +1,5 @@
 import type {
+  ActivityEvent,
   Agenda,
   AskResponse,
   CategoryCount,
@@ -13,6 +14,7 @@ import type {
   JobStatus,
   ModificationJob,
   ProvidersResponse,
+  ReflectionResult,
   Setting,
   Skill,
   SystemStatus,
@@ -105,6 +107,11 @@ export const api = {
   systemStatus: () => request<SystemStatus>("/api/system"),
 
   listProviders: () => request<ProvidersResponse>("/api/providers"),
+
+  activity: (limit = 50) => request<{ events: ActivityEvent[]; counts: Record<string, number> }>(`/api/activity?limit=${limit}`),
+
+  reflect: (dryRun = false) =>
+    request<ReflectionResult>(`/api/reflect${dryRun ? "?dry_run=true" : ""}`, { method: "POST" }),
 
   listSettings: () => request<{ settings: Setting[] }>("/api/settings"),
 

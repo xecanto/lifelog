@@ -71,4 +71,16 @@ def create_entry(
         if facet.get("kind") == FEATURE_REQUEST_KIND:
             _queue_modification(entry_id, facet)
 
+    db.log_event(
+        kind="capture",
+        entry_id=entry_id,
+        data={
+            "source_type": source_type,
+            "skills": meta.get("skills", []),
+            "category": meta.get("category", ""),
+            "facet_kinds": [f.get("kind") for f in meta.get("facets", [])],
+            "tags": meta.get("tags", []),
+        },
+    )
+
     return db.get_entry(entry_id)

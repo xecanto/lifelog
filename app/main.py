@@ -9,6 +9,7 @@ from app.agenda import build_agenda, spend_summary
 from app.claude_client import MissingAPIKeyError
 from app.config import AGENDA_DEFAULT_DAYS, CORS_ORIGINS, DATA_DIR
 from app.llm import LLMError
+from app.reflect import reflect
 from app.graph import build_graph
 from app.ingest.capture import capture
 from app.ingest.files import ingest_file
@@ -233,7 +234,13 @@ def update_facet(facet_id: int, payload: FacetStatusIn) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
     if not updated:
         raise HTTPException(status_code=404, detail="Facet not found")
-    return db.get_facet(facet_id)
+    facet = db.get_facet(facet_id)
+    db.log_event(
+        kind="facet_action",
+        entry_id=facet["entry_id"],
+        data={"facet_id": facet_id, "kind": facet["kind"], "status": payload.status},
+    )
+    return facet
 
 
 # ---------------------------------------------------------------------------
@@ -329,6 +336,30 @@ def cancel_modification(job_id: int) -> dict:
         raise HTTPException(status_code=400, detail=f"Only pending jobs can be cancelled (this one is {job['status']})")
     db.update_job(job_id, status="cancelled", finished_at=db.now_iso())
     return db.get_job(job_id)
+
+
+# ---------------------------------------------------------------------------
+# Activity and reflection -- learning from how the app is actually used
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/activity")
+def get_activity(limit: int = 50) -> dict:
+    return {
+        "events": db.list_events(limit=limit),
+        "counts": db.count_events_by_kind(),
+    }
+
+
+@app.post("/api/reflect")
+def run_reflection(dry_run: bool = False) -> dict:
+    """Review usage and file proposals for what's missing.
+
+    Proposals become ordinary modification jobs, so the self-modification
+    settings decide whether they run or wait. `dry_run` proposes without
+    filing anything.
+    """
+    return _handle(reflect, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------

@@ -116,6 +116,31 @@ export interface Provider {
   base_url: string;
 }
 
+export interface ReflectionProposal {
+  title: string;
+  kind: JobKind;
+  prompt: string;
+  /** The evidence in the signals that justified this proposal. */
+  why: string;
+}
+
+export interface ReflectionResult {
+  ran: boolean;
+  /** Why it didn't run, when `ran` is false. */
+  reason: string;
+  observations: string[];
+  proposals: ReflectionProposal[];
+  jobs: ModificationJob[];
+}
+
+export interface ActivityEvent {
+  id: number;
+  created_at: string;
+  kind: string;
+  entry_id: number | null;
+  data: Record<string, unknown>;
+}
+
 export interface ProvidersResponse {
   providers: Provider[];
   active: { provider: string; model: string };

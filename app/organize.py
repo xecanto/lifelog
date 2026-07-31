@@ -164,9 +164,19 @@ def _build_system_prompt(selected: list[Skill]) -> str:
     return "\n\n".join(parts)
 
 
+def _derive_title(raw_text: str) -> str:
+    """A readable title from the content itself, for when the model gives none."""
+    snippet = " ".join((raw_text or "").split())[:70]
+    if not snippet:
+        return "Untitled entry"
+    if len(snippet) == 70 and " " in snippet:
+        snippet = snippet.rsplit(" ", 1)[0]  # don't cut mid-word
+    return snippet
+
+
 def _fallback(raw_text: str, skill_ids: list[str]) -> dict:
     return {
-        "title": (raw_text[:60] or "Untitled entry").strip(),
+        "title": _derive_title(raw_text),
         "summary": "",
         "category": "Other",
         "tags": [],
@@ -223,10 +233,15 @@ def organize(
     if data is None:
         return _fallback(raw_text, ids)
 
-    data.setdefault("title", "Untitled entry")
-    data.setdefault("summary", "")
-    data.setdefault("category", "Other")
-    data.setdefault("tags", [])
+    # setdefault isn't enough here: the model sometimes returns the keys with
+    # empty values, and an entry with a blank title is unfindable in the
+    # library. Treat empty as missing.
+    data["title"] = str(data.get("title") or "").strip() or _derive_title(raw_text)
+    data["summary"] = str(data.get("summary") or "").strip()
+    data["category"] = str(data.get("category") or "").strip() or "Other"
+    data["tags"] = [
+        t.strip() for t in (data.get("tags") or []) if isinstance(t, str) and t.strip()
+    ]
 
     raw_facets = data.pop("facets", None) or {}
     facets = []

@@ -122,4 +122,11 @@ def ask(question: str) -> dict:
     by_id = {e["id"]: e for e in candidates}
     sources = [by_id[i] for i in data.get("source_ids", []) if i in by_id]
 
+    # A question that cites nothing is a gap: something the user expected to
+    # have saved and hadn't. That's a signal reflection acts on.
+    db.log_event(
+        kind="ask",
+        data={"question": question, "source_count": len(sources), "candidates": len(candidates)},
+    )
+
     return {"answer": data.get("answer", ""), "sources": sources}

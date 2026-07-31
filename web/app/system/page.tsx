@@ -2,10 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { JobKind, ModificationJob, Provider, Setting, SystemStatus } from "@/lib/types";
+import type {
+  JobKind,
+  ModificationJob,
+  Provider,
+  ReflectionResult,
+  Setting,
+  SystemStatus,
+} from "@/lib/types";
 import JobCard from "@/components/JobCard";
 import StatusMessage from "@/components/StatusMessage";
-import { primaryBtn, textInput } from "@/lib/ui";
+import { primaryBtn, secondaryBtn, textInput } from "@/lib/ui";
 
 function SettingRow({
   setting,
@@ -101,6 +108,9 @@ export default function SystemPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ text: string; kind?: "error" | "success" }>({ text: "" });
 
+  const [reflection, setReflection] = useState<ReflectionResult | null>(null);
+  const [reflecting, setReflecting] = useState(false);
+
   const [prompt, setPrompt] = useState("");
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<JobKind>("skill");
@@ -184,6 +194,20 @@ export default function SystemPage() {
     }
   }
 
+  async function runReflection() {
+    setReflecting(true);
+    setMessage({ text: "" });
+    try {
+      const result = await api.reflect();
+      setReflection(result);
+      if (result.jobs.length) setJobs((prev) => [...result.jobs, ...prev]);
+    } catch (err) {
+      setMessage({ text: err instanceof ApiError ? err.message : "Could not review activity.", kind: "error" });
+    } finally {
+      setReflecting(false);
+    }
+  }
+
   function handleJobChange(updated: ModificationJob) {
     setJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
   }
@@ -256,6 +280,38 @@ export default function SystemPage() {
           </ul>
         </section>
       )}
+
+      <section className="mb-6 rounded-[10px] border border-border bg-surface p-4 shadow-sm">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Learning from use</h2>
+        <p className="mt-1.5 text-sm text-muted">
+          Reviews what you&apos;ve actually been saving and asking, and proposes what it&apos;s missing —
+          especially a subject that keeps getting split across several loosely-fitting skills.
+        </p>
+        <button className={secondaryBtn + " mt-3"} onClick={runReflection} disabled={reflecting}>
+          {reflecting ? "Reviewing..." : "Review my activity"}
+        </button>
+
+        {reflection && (
+          <div className="mt-3">
+            {!reflection.ran && <p className="text-sm text-muted">{reflection.reason}</p>}
+            {reflection.observations.length > 0 && (
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
+                {reflection.observations.map((o, i) => (
+                  <li key={i}>{o}</li>
+                ))}
+              </ul>
+            )}
+            {reflection.ran && reflection.proposals.length === 0 && (
+              <p className="mt-2 text-sm text-muted">Nothing worth changing yet.</p>
+            )}
+            {reflection.jobs.length > 0 && (
+              <p className="mt-2 text-sm text-accent">
+                Filed {reflection.jobs.length} proposal{reflection.jobs.length === 1 ? "" : "s"} below.
+              </p>
+            )}
+          </div>
+        )}
+      </section>
 
       <section className="mb-6 rounded-[10px] border border-border bg-surface p-4 shadow-sm">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Request a change</h2>

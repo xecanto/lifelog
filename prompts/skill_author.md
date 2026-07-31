@@ -25,7 +25,17 @@ promote:
 Instructions for filling in the fields above.
 ```
 
+The file has **exactly two `---` lines**: one opening the frontmatter, one
+closing it. Everything in YAML — including `promote` — goes *between* them.
+Anything after the closing `---` is prose instructions and is ignored as
+configuration, so YAML placed down there silently does nothing.
+
 Rules that matter:
+
+- **If any field holds a date the user would want resurfaced** (a renewal, a
+  deadline, a follow-up, an expiry), you must `promote` it to `due_at`. That
+  is the only thing that puts the record on the agenda; without it the date
+  is stored and never seen again.
 
 - **`name` must be kebab-case** and must not collide with an existing skill.
   If the request is really covered by an existing skill, say so in `reasoning`

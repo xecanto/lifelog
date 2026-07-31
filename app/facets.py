@@ -198,10 +198,11 @@ def build_facet(skill: Skill, data: dict) -> dict | None:
     payload = dict(data or {})
     label = normalize_text(payload.pop(LABEL_FIELD, None)) or ""
 
-    meaningful = {
-        k: v for k, v in payload.items() if v not in (None, "", [], {})
-    }
-    if not meaningful and not label:
+    # A facet whose every field came back empty carries no information beyond
+    # its kind -- the label is just model-written summary text. Storing it
+    # puts an empty row on the entry and, worse, a blank item on the agenda.
+    meaningful = {k: v for k, v in payload.items() if v not in (None, "", [], {})}
+    if not meaningful:
         return None
 
     facet = {"kind": skill.id, "label": label, "data": payload}

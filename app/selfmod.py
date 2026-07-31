@@ -31,6 +31,9 @@ from app.prompts import load_prompt
 
 VALID_SOURCE_TYPES = {"text", "link", "file", "image", "voice"}
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_STRAY_FRONTMATTER_RE = re.compile(
+    r"^(name|description|applies_to|extra_schema|promote)\s*:", re.MULTILINE
+)
 
 # Agent output can be long; keep the tail, which is where the summary is.
 _MAX_RESULT_CHARS = 8000
@@ -177,6 +180,16 @@ def validate_skill_file(name: str, content: str) -> tuple[str, skills.Skill]:
     for field, definition in skill.extra_schema.items():
         if not isinstance(definition, dict) or "type" not in definition:
             raise ValueError(f"extra_schema field '{field}' needs at least a `type`")
+
+    # YAML that lands after the closing --- is parsed as prose and silently
+    # ignored. An authored file once put `promote:` below the instructions,
+    # which cost the skill its agenda integration without failing anything.
+    stray = _STRAY_FRONTMATTER_RE.search(skill.instructions)
+    if stray:
+        raise ValueError(
+            f"'{stray.group(1)}:' appears in the instructions body. All YAML keys must be "
+            "inside the single --- frontmatter block at the top of the file."
+        )
 
     if not isinstance(skill.promote, dict):
         raise ValueError("promote must be a mapping of column -> field name")

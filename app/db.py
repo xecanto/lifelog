@@ -103,6 +103,20 @@ CREATE TABLE IF NOT EXISTS mod_jobs (
 );
 
 CREATE INDEX IF NOT EXISTS mod_jobs_status_idx ON mod_jobs(status);
+
+-- What the user actually does: what they capture, what they ask, what they
+-- act on. This is the raw material for reflection (app/reflect.py) -- the
+-- assistant can only improve at serving someone it has observed.
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    entry_id INTEGER REFERENCES entries(id) ON DELETE SET NULL,
+    data TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS events_kind_idx ON events(kind);
+CREATE INDEX IF NOT EXISTS events_created_idx ON events(created_at);
 """
 
 # Facet lifecycle. Anything time-bound stays `open` until you act on it --
@@ -510,6 +524,76 @@ def claim_job(job_id: int) -> bool:
             (now_iso(), now_iso(), job_id),
         )
         return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Activity log
+# ---------------------------------------------------------------------------
+
+
+def log_event(*, kind: str, entry_id: int | None = None, data: dict | None = None) -> None:
+    """Record something the user did.
+
+    Never raises: an analytics write must not be able to fail a capture.
+    """
+    try:
+        with db_cursor() as cur:
+            cur.execute(
+                "INSERT INTO events (created_at, kind, entry_id, data) VALUES (?, ?, ?, ?)",
+                (now_iso(), kind, entry_id, json.dumps(data or {})),
+            )
+    except sqlite3.Error:
+        pass
+
+
+def list_events(*, kind: str | None = None, limit: int = 100) -> list[dict]:
+    with db_cursor() as cur:
+        if kind:
+            cur.execute(
+                "SELECT * FROM events WHERE kind = ? ORDER BY id DESC LIMIT ?", (kind, limit)
+            )
+        else:
+            cur.execute("SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,))
+        rows = []
+        for row in cur.fetchall():
+            d = dict(row)
+            d["data"] = json.loads(d.get("data") or "{}")
+            rows.append(d)
+        return rows
+
+
+def count_events_by_kind() -> dict[str, int]:
+    with db_cursor() as cur:
+        cur.execute("SELECT kind, COUNT(*) AS c FROM events GROUP BY kind")
+        return {r["kind"]: r["c"] for r in cur.fetchall()}
+
+
+def list_entries_without_facets(limit: int = 40) -> list[dict]:
+    """Entries whose skill fired but extracted nothing structured.
+
+    A weaker signal than falling through to `general`, but it catches the
+    case that one misses: a skill that *plausibly* matched and then had
+    nothing useful to record -- e.g. workout logs filed as journal entries.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT entries.* FROM entries
+            LEFT JOIN facets ON facets.entry_id = entries.id
+            WHERE facets.id IS NULL AND entries.skill != 'general'
+            ORDER BY entries.id DESC LIMIT ?
+            """,
+            (limit,),
+        )
+        return [row_to_dict(r) for r in cur.fetchall()]
+
+
+def list_entries_by_skill(skill: str, limit: int = 40) -> list[dict]:
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT * FROM entries WHERE skill = ? ORDER BY id DESC LIMIT ?", (skill, limit)
+        )
+        return [row_to_dict(r) for r in cur.fetchall()]
 
 
 def count_jobs_by_status() -> dict[str, int]:
