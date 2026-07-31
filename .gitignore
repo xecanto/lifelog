@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/
+*.egg-info/
+
+# Portable Claude Code state -- contains .credentials.json (auth tokens),
+# session transcripts, and machine-specific paths. Never commit.
+.claude-portable/

@@ -1,0 +1,78 @@
+"""Dynamic skill loading.
+
+A "skill" is a markdown file under skills/ with YAML frontmatter -- a
+specialized way of organizing one kind of saved content (a recipe, a task, a
+meeting note, ...). Nothing about the available skills is hardcoded in
+Python: the directory is rescanned on every call, so adding, editing, or
+deleting a .md file changes what the app can do without touching code or
+restarting the server.
+
+Selection is a two-step, progressive-disclosure pattern (mirrors how Claude
+Agent Skills work): only {id, description} for every skill is ever shown to
+Claude to pick from (cheap, small context); the full instructions + extra
+schema for the *selected* skill are loaded only after it's chosen.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+import yaml
+
+from app.config import SKILLS_DIR
+
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", re.DOTALL)
+
+GENERAL_SKILL_ID = "general"
+
+
+@dataclass
+class Skill:
+    id: str
+    description: str
+    applies_to: list[str] = field(default_factory=list)
+    extra_schema: dict = field(default_factory=dict)
+    instructions: str = ""
+
+
+def _parse_skill_file(path) -> Skill | None:
+    text = path.read_text(encoding="utf-8")
+    match = _FRONTMATTER_RE.match(text)
+    if not match:
+        return None
+    frontmatter_raw, body = match.groups()
+    meta = yaml.safe_load(frontmatter_raw) or {}
+    skill_id = meta.get("name") or path.stem
+    return Skill(
+        id=skill_id,
+        description=meta.get("description", ""),
+        applies_to=meta.get("applies_to") or ["text", "link", "file", "image", "voice"],
+        extra_schema=meta.get("extra_schema") or {},
+        instructions=body.strip(),
+    )
+
+
+def _load_all() -> dict[str, Skill]:
+    skills: dict[str, Skill] = {}
+    for path in sorted(SKILLS_DIR.glob("*.md")):
+        skill = _parse_skill_file(path)
+        if skill:
+            skills[skill.id] = skill
+    return skills
+
+
+def list_skills(source_type: str | None = None) -> list[Skill]:
+    values = list(_load_all().values())
+    if source_type:
+        values = [s for s in values if source_type in s.applies_to]
+    return values
+
+
+def get_skill(skill_id: str) -> Skill | None:
+    return _load_all().get(skill_id)
+
+
+def skills_menu(source_type: str | None = None) -> list[dict]:
+    """Short {id, description} list -- what gets shown to Claude to pick from."""
+    return [{"id": s.id, "description": s.description} for s in list_skills(source_type)]
