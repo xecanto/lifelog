@@ -111,6 +111,8 @@ app/                 FastAPI backend
   organize.py          Two-pass Claude call: route to skills, then extract them all
   facets.py            Builds/normalizes facet rows from each skill's extraction
   agenda.py            What's overdue/due/upcoming, and recurring spend
+  settings.py          Runtime settings (defaults in code, overrides in the DB)
+  selfmod.py           Self-modification: authors skills, runs the coding agent
   search.py            Ask: FTS5 retrieval + Claude answer with citations
   graph.py             Builds the knowledge graph (entries + tags + TF-IDF edges)
   skills.py            Loads skills/*.md from disk (no hardcoded skill list)
@@ -132,6 +134,7 @@ web/                  Next.js frontend (App Router)
     ask/                 Ask a question over your saved entries
     graph/               3D force-directed knowledge graph (lazy-loaded, client-only)
     skills/               Read-only view of whatever's in the backend's skills/ dir
+    system/               Self-modification settings + the modification job queue
   components/           Shared UI (EntryCard, EntryDetail, Modal, Graph3D, VoiceRecorder, ...)
   lib/                  API client + shared types
 ```
@@ -172,9 +175,11 @@ Any extra instructions for how to fill in the fields above.
 
 Nothing needs to be registered anywhere else -- the file is picked up on the
 very next request. The `/skills` page in the frontend reflects exactly what's
-on disk. Fifteen skills ship by default: `general`, `article-link`, `recipe`,
+on disk. Sixteen skills ship by default: `general`, `article-link`, `recipe`,
 `task`, `meeting-notes`, `idea`, `journal`, `contact`, `receipt-expense`,
-`account`, `subscription`, `reminder`, `event`, `project`, `document`.
+`account`, `subscription`, `reminder`, `event`, `project`, `document`, and
+`feature-request` (which is how the app extends itself — see
+[Self-modification](#self-modification)).
 
 Note that every field in an `extra_schema` is required in the generated JSON
 schema, so anything optional must be nullable (`type: ["string", "null"]`) --
@@ -224,6 +229,49 @@ that `PATCH /api/facets/{id}` to take an item off the list.
 The same applies to prompts: `prompts/organize_base.md`, `ask_system.md`,
 `skill_selector.md`, and `image_describe.md` are plain text, loaded fresh on
 every request -- edit tone, persona, or instructions without touching code.
+
+## Self-modification
+
+The assistant can extend itself. Say "it should also track my car servicing"
+in a note and the `feature-request` skill files a **modification job** — or
+request one directly on the `/system` page.
+
+**A request always becomes a job, whatever the settings say.** The settings
+decide only whether it runs now or waits as `pending` for you to run by hand,
+so turning self-modification off loses nothing; it just puts you in the loop.
+
+Two tiers, because the risk isn't comparable:
+
+| | **skill** | **code** |
+|---|---|---|
+| What it does | Writes a `skills/*.md` file | Runs a coding agent against the source |
+| Executes code? | No — data only | Yes |
+| Default | Auto-runs once self-modification is on | Always waits for you, unless separately opted in |
+
+A generated skill is validated by the same parser that loads skills before
+it's written: kebab-case name matching its frontmatter, known `applies_to`
+values, `promote` columns that exist and point at real fields, no overwriting
+an existing skill, and a resolved path that can't leave `skills/`.
+
+A code change requires a **clean git tree** (so your uncommitted work is never
+swept into the agent's commit), runs on its own `selfmod/<id>-<slug>` branch,
+commits there, and returns you to the branch you started on whatever happens.
+**Nothing is ever merged for you** — review with
+`git diff master..selfmod/<id>-<slug>` and merge yourself.
+
+Settings (all on `/system`, stored in the database):
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `self_modification_enabled` | off | Master switch. Off means everything waits for you. |
+| `self_modification_auto_skill` | on | Let it write skill files by itself (once the master switch is on). |
+| `self_modification_auto_code` | off | Let it change code without asking. |
+| `agent_command` | `claude` | The CLI to invoke; use a full path if it isn't on PATH. The prompt is appended as `-p <prompt>`, without a shell. |
+| `agent_timeout_seconds` | 900 | How long the agent may run. |
+
+Note that a code job edits files while the app is running, so a dev server
+with `--reload` will restart mid-job. The job returns you to your original
+branch when it finishes, so the final state is whatever you had before.
 
 ## The knowledge graph
 
