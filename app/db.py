@@ -72,11 +72,49 @@ CREATE INDEX IF NOT EXISTS facets_entry_idx ON facets(entry_id);
 CREATE INDEX IF NOT EXISTS facets_kind_idx ON facets(kind);
 CREATE INDEX IF NOT EXISTS facets_due_idx ON facets(due_at);
 CREATE INDEX IF NOT EXISTS facets_status_idx ON facets(status);
+
+-- User-editable runtime settings. Defaults live in app/settings.py; a row
+-- here only exists once a value has been changed from its default.
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Requests to change the app itself. Every request becomes a row whether or
+-- not self-modification is enabled: the setting decides only whether the job
+-- runs now or waits for the user to run it by hand. Nothing is ever silently
+-- dropped, and a job's prompt stays readable after the fact.
+CREATE TABLE IF NOT EXISTS mod_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    prompt TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'code',
+    status TEXT NOT NULL DEFAULT 'pending',
+    origin TEXT NOT NULL DEFAULT 'manual',
+    entry_id INTEGER REFERENCES entries(id) ON DELETE SET NULL,
+    branch TEXT,
+    result TEXT NOT NULL DEFAULT '',
+    error TEXT,
+    started_at TEXT,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS mod_jobs_status_idx ON mod_jobs(status);
 """
 
 # Facet lifecycle. Anything time-bound stays `open` until you act on it --
 # that's what keeps it on the agenda.
 FACET_STATUSES = ("open", "done", "dismissed")
+
+# `skill` writes a skills/*.md file (data only, no code runs).
+# `code`  hands the prompt to a coding agent that edits the app itself.
+JOB_KINDS = ("skill", "code")
+
+# pending -> the user must run it; running -> in flight; the rest are final.
+JOB_STATUSES = ("pending", "running", "succeeded", "failed", "cancelled")
 
 
 def get_connection() -> sqlite3.Connection:
@@ -365,3 +403,111 @@ def list_facet_kinds() -> list[dict]:
             """
         )
         return [dict(r) for r in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# Settings -- only overrides are stored; defaults live in app/settings.py
+# ---------------------------------------------------------------------------
+
+
+def get_setting_overrides() -> dict[str, str]:
+    with db_cursor() as cur:
+        cur.execute("SELECT key, value FROM settings")
+        return {r["key"]: r["value"] for r in cur.fetchall()}
+
+
+def set_setting_override(key: str, value: str) -> None:
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now_iso()),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Modification jobs
+# ---------------------------------------------------------------------------
+
+
+def insert_job(
+    *,
+    title: str,
+    prompt: str,
+    kind: str = "code",
+    status: str = "pending",
+    origin: str = "manual",
+    entry_id: int | None = None,
+) -> int:
+    if kind not in JOB_KINDS:
+        raise ValueError(f"Invalid kind '{kind}'. Expected one of: {', '.join(JOB_KINDS)}")
+    if status not in JOB_STATUSES:
+        raise ValueError(f"Invalid status '{status}'. Expected one of: {', '.join(JOB_STATUSES)}")
+    stamp = now_iso()
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO mod_jobs (created_at, updated_at, title, prompt, kind, status, origin, entry_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (stamp, stamp, title, prompt, kind, status, origin, entry_id),
+        )
+        return cur.lastrowid
+
+
+def get_job(job_id: int) -> dict | None:
+    with db_cursor() as cur:
+        cur.execute("SELECT * FROM mod_jobs WHERE id = ?", (job_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def list_jobs(*, status: str | None = None, limit: int = 100, offset: int = 0) -> list[dict]:
+    with db_cursor() as cur:
+        if status:
+            cur.execute(
+                "SELECT * FROM mod_jobs WHERE status = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                (status, limit, offset),
+            )
+        else:
+            cur.execute("SELECT * FROM mod_jobs ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def update_job(job_id: int, **fields) -> bool:
+    """Update whitelisted job columns. Always refreshes updated_at."""
+    allowed = {"status", "result", "error", "branch", "started_at", "finished_at", "title"}
+    unknown = set(fields) - allowed
+    if unknown:
+        raise ValueError(f"Cannot update job columns: {', '.join(sorted(unknown))}")
+    if fields.get("status") and fields["status"] not in JOB_STATUSES:
+        raise ValueError(f"Invalid status '{fields['status']}'")
+
+    fields["updated_at"] = now_iso()
+    assignments = ", ".join(f"{k} = ?" for k in fields)
+    with db_cursor() as cur:
+        cur.execute(f"UPDATE mod_jobs SET {assignments} WHERE id = ?", (*fields.values(), job_id))
+        return cur.rowcount > 0
+
+
+def claim_job(job_id: int) -> bool:
+    """Move a job pending -> running, refusing if it isn't pending.
+
+    The UPDATE tests the status itself so two concurrent run requests can't
+    both start the same job.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            "UPDATE mod_jobs SET status = 'running', started_at = ?, updated_at = ?, error = NULL "
+            "WHERE id = ? AND status = 'pending'",
+            (now_iso(), now_iso(), job_id),
+        )
+        return cur.rowcount > 0
+
+
+def count_jobs_by_status() -> dict[str, int]:
+    with db_cursor() as cur:
+        cur.execute("SELECT status, COUNT(*) AS c FROM mod_jobs GROUP BY status")
+        return {r["status"]: r["c"] for r in cur.fetchall()}

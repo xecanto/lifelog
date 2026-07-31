@@ -41,14 +41,24 @@ class Skill:
     instructions: str = ""
 
 
-def _parse_skill_file(path) -> Skill | None:
-    text = path.read_text(encoding="utf-8")
+def parse_skill_text(text: str, *, fallback_id: str = "") -> Skill | None:
+    """Parse skill markdown. Returns None if it has no usable frontmatter.
+
+    Used both to load skills/ from disk and to validate a skill file authored
+    by the assistant before it's written (see app/selfmod.py) -- validating
+    through the same code path that loads them is the point.
+    """
     match = _FRONTMATTER_RE.match(text)
     if not match:
         return None
     frontmatter_raw, body = match.groups()
-    meta = yaml.safe_load(frontmatter_raw) or {}
-    skill_id = meta.get("name") or path.stem
+    try:
+        meta = yaml.safe_load(frontmatter_raw) or {}
+    except yaml.YAMLError:
+        return None
+    if not isinstance(meta, dict):
+        return None
+    skill_id = meta.get("name") or fallback_id
     return Skill(
         id=skill_id,
         description=meta.get("description", ""),
@@ -57,6 +67,10 @@ def _parse_skill_file(path) -> Skill | None:
         promote=meta.get("promote") or {},
         instructions=body.strip(),
     )
+
+
+def _parse_skill_file(path) -> Skill | None:
+    return parse_skill_text(path.read_text(encoding="utf-8"), fallback_id=path.stem)
 
 
 def _load_all() -> dict[str, Skill]:
