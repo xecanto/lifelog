@@ -1,7 +1,7 @@
 ---
 name: task
-description: A task, reminder, to-do item, or something the user needs to do or follow up on.
-applies_to: [text, voice]
+description: A task, to-do item, or something the user needs to do or follow up on, with or without a deadline.
+applies_to: [text, voice, image, file]
 extra_schema:
   due_date:
     type: ["string", "null"]
@@ -9,7 +9,13 @@ extra_schema:
   priority:
     type: ["string", "null"]
     description: One of "low", "medium", "high" if urgency is stated or implied, otherwise null.
+promote:
+  due_at: due_date
 ---
 Only set due_date if a date is actually stated or unambiguously implied (e.g.
-"tomorrow", "next Friday") -- resolve relative dates using the entry's saved
-timestamp as "today". Don't guess a priority that isn't implied by the text.
+"tomorrow", "next Friday") -- resolve it against today's date given at the top
+of the message. Don't guess a priority that isn't implied by the text.
+
+Use `task` for something the user has to *do*. If they're mainly asking to be
+told about something at a particular time, that's `reminder` instead; a note
+can be both.
