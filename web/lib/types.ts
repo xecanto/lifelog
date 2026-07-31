@@ -68,6 +68,45 @@ export interface FacetKind {
   open_count: number;
 }
 
+export type JobKind = "skill" | "code";
+export type JobStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
+
+/** A request to change the app itself. */
+export interface ModificationJob {
+  id: number;
+  created_at: string;
+  updated_at: string;
+  title: string;
+  prompt: string;
+  kind: JobKind;
+  status: JobStatus;
+  /** "manual" when requested directly, "capture" when it came from a note. */
+  origin: string;
+  entry_id: number | null;
+  branch: string | null;
+  result: string;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface Setting {
+  key: string;
+  value: boolean | number | string;
+  default: boolean | number | string;
+  type: "bool" | "int" | "str";
+  label: string;
+  description: string;
+}
+
+export interface SystemStatus {
+  settings: Record<string, boolean | number | string>;
+  counts: Record<string, number>;
+  /** Reasons a code job can't run right now; empty means ready. */
+  code_preflight: string[];
+  agent_available: boolean;
+}
+
 export interface EntryListResponse {
   entries: Entry[];
   total: number;

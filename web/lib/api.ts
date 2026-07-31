@@ -9,7 +9,12 @@ import type {
   FacetListResponse,
   FacetStatus,
   GraphData,
+  JobKind,
+  JobStatus,
+  ModificationJob,
+  Setting,
   Skill,
+  SystemStatus,
 } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
@@ -87,6 +92,25 @@ export const api = {
     request<Facet>(`/api/facets/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
 
   ask: (question: string) => request<AskResponse>("/api/ask", { method: "POST", body: JSON.stringify({ question }) }),
+
+  systemStatus: () => request<SystemStatus>("/api/system"),
+
+  listSettings: () => request<{ settings: Setting[] }>("/api/settings"),
+
+  updateSettings: (values: Record<string, boolean | number | string>) =>
+    request<{ settings: Setting[] }>("/api/settings", { method: "PATCH", body: JSON.stringify({ values }) }),
+
+  listModifications: (status?: JobStatus) =>
+    request<{ jobs: ModificationJob[] }>(`/api/modifications${status ? `?status=${status}` : ""}`),
+
+  createModification: (payload: { prompt: string; title?: string; kind: JobKind }) =>
+    request<ModificationJob>("/api/modifications", { method: "POST", body: JSON.stringify(payload) }),
+
+  runModification: (id: number) =>
+    request<ModificationJob>(`/api/modifications/${id}/run`, { method: "POST" }),
+
+  cancelModification: (id: number) =>
+    request<ModificationJob>(`/api/modifications/${id}/cancel`, { method: "POST" }),
 
   graph: () => request<GraphData>("/api/graph"),
 };
