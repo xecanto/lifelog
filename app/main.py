@@ -1,5 +1,5 @@
 import anthropic
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -10,6 +10,7 @@ from app.claude_client import MissingAPIKeyError
 from app.config import AGENDA_DEFAULT_DAYS, CORS_ORIGINS, DATA_DIR
 from app.llm import LLMError
 from app.graph import build_graph
+from app.ingest.capture import capture
 from app.ingest.files import ingest_file
 from app.ingest.images import ingest_image
 from app.ingest.links import ingest_link
@@ -71,6 +72,26 @@ class LinkIn(BaseModel):
 
 class AskIn(BaseModel):
     question: str
+
+
+@app.post("/api/capture")
+async def add_capture(
+    text: str | None = Form(default=None),
+    file: UploadFile | None = File(default=None),
+) -> dict:
+    """One endpoint for anything: typed text, a URL, a file, image, or audio.
+
+    The source type is worked out from the input rather than chosen by the
+    user -- see app/ingest/capture.py.
+    """
+    content = await file.read() if file is not None else None
+    return _handle(
+        capture,
+        text=text,
+        filename=file.filename if file is not None else None,
+        content=content,
+        content_type=file.content_type if file is not None else None,
+    )
 
 
 @app.post("/api/entries/text")

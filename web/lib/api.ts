@@ -40,6 +40,14 @@ export function mediaUrl(filePath: string): string {
 }
 
 export const api = {
+  /** One call for anything — the backend works out what it is. */
+  capture: ({ text, file }: { text?: string; file?: File }) => {
+    const form = new FormData();
+    if (text) form.append("text", text);
+    if (file) form.append("file", file);
+    return request<Entry>("/api/capture", { method: "POST", body: form });
+  },
+
   addText: (text: string) => request<Entry>("/api/entries/text", { method: "POST", body: JSON.stringify({ text }) }),
 
   addLink: (url: string) => request<Entry>("/api/entries/link", { method: "POST", body: JSON.stringify({ url }) }),
