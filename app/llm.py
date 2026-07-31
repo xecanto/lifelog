@@ -420,14 +420,27 @@ def _post_openai(spec: ProviderSpec, body: dict) -> dict:
 
 
 def _error_message(response: httpx.Response) -> str:
+    """Pull a human-readable message out of an error body.
+
+    Shapes differ: OpenAI returns {"error": {...}}, Google returns a *list*
+    of those. Anything unrecognized falls back to raw text -- an unhelpful
+    message beats an exception thrown while reporting an exception, which
+    hides the real failure.
+    """
     try:
         payload = response.json()
     except ValueError:
         return response.text[:300]
-    error = payload.get("error")
+
+    if isinstance(payload, list):
+        payload = payload[0] if payload else {}
+    if not isinstance(payload, dict):
+        return str(payload)[:300]
+
+    error = payload.get("error", payload)
     if isinstance(error, dict):
         return str(error.get("message") or error)[:300]
-    return str(error or payload)[:300]
+    return str(error)[:300]
 
 
 def _first_choice(data: dict) -> dict:
