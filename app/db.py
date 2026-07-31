@@ -412,7 +412,12 @@ def list_facet_kinds() -> list[dict]:
 
 def get_setting_overrides() -> dict[str, str]:
     with db_cursor() as cur:
-        cur.execute("SELECT key, value FROM settings")
+        try:
+            cur.execute("SELECT key, value FROM settings")
+        except sqlite3.OperationalError:
+            # Table not created yet (settings read before init_db). Defaults
+            # in app/settings.py are the right answer in that state.
+            return {}
         return {r["key"]: r["value"] for r in cur.fetchall()}
 
 

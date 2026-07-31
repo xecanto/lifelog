@@ -4,10 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import db, selfmod, settings, skills
+from app import db, llm, selfmod, settings, skills
 from app.agenda import build_agenda, spend_summary
 from app.claude_client import MissingAPIKeyError
 from app.config import AGENDA_DEFAULT_DAYS, CORS_ORIGINS, DATA_DIR
+from app.llm import LLMError
 from app.graph import build_graph
 from app.ingest.files import ingest_file
 from app.ingest.images import ingest_image
@@ -42,10 +43,12 @@ def _handle(fn, *args, **kwargs) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
     except anthropic.APIStatusError as exc:
-        raise HTTPException(status_code=502, detail=f"Claude API error: {exc.message}")
+        raise HTTPException(status_code=502, detail=f"Model provider error: {exc.message}")
     except anthropic.APIConnectionError:
-        raise HTTPException(status_code=502, detail="Could not reach the Claude API. Check your internet connection.")
+        raise HTTPException(status_code=502, detail="Could not reach the model provider. Check your internet connection.")
 
 
 @app.get("/")
@@ -242,6 +245,18 @@ def patch_settings(payload: SettingsIn) -> dict:
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"settings": settings.describe()}
+
+
+@app.get("/api/providers")
+def get_providers() -> dict:
+    """Available model providers and whether each has a key configured.
+
+    Key *values* are never returned -- only whether one is present.
+    """
+    return {
+        "providers": llm.describe_providers(),
+        "active": {"provider": llm.active_provider().id, "model": llm.active_model()},
+    }
 
 
 @app.get("/api/system")

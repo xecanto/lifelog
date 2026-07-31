@@ -13,11 +13,10 @@ Two Claude calls, both schema/prompt-driven from disk (nothing hardcoded):
    those becomes a facet row (see app/facets.py).
 """
 
-import json
 from datetime import datetime
 
-from app.claude_client import first_text, get_client
-from app.config import MAX_SKILLS_PER_ENTRY, MODEL, ORGANIZE_TEXT_LIMIT
+from app import llm
+from app.config import MAX_SKILLS_PER_ENTRY, ORGANIZE_TEXT_LIMIT
 from app.facets import LABEL_FIELD, LABEL_SCHEMA, build_facet
 from app.prompts import load_prompt
 from app.skills import GENERAL_SKILL_ID, Skill, get_skill, skills_menu
@@ -90,32 +89,28 @@ def _select_skills(raw_text: str, source_type: str) -> list[str]:
         return ids
 
     menu_text = "\n".join(f"- {s['id']}: {s['description']}" for s in menu)
-    client = get_client()
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=300,
-        system=load_prompt("skill_selector"),
-        output_config={
-            "format": {"type": "json_schema", "schema": _skill_select_schema(ids)},
-            "effort": "low",
-        },
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"{_today_context()}\n\nSkills:\n{menu_text}\n\n"
-                    f'Content (may be truncated):\n"""\n{raw_text[:2000]}\n"""'
-                ),
-            }
-        ],
-    )
+    try:
+        data = llm.complete_json(
+            system=load_prompt("skill_selector"),
+            user_content=(
+                f"{_today_context()}\n\nSkills:\n{menu_text}\n\n"
+                f'Content (may be truncated):\n"""\n{raw_text[:2000]}\n"""'
+            ),
+            schema=_skill_select_schema(ids),
+            max_tokens=300,
+            effort="low",
+            schema_name="skill_selection",
+        )
+    except llm.LLMError:
+        # Routing is a convenience -- a provider hiccup shouldn't stop the
+        # capture, it should just fall back to the general skill.
+        return [GENERAL_SKILL_ID]
 
-    if response.stop_reason == "refusal":
+    if data is None:
         return [GENERAL_SKILL_ID]
     try:
-        data = json.loads(first_text(response.content))
         picked = [s for s in data.get("skill_ids", []) if s in ids]
-    except (json.JSONDecodeError, TypeError, AttributeError):
+    except (TypeError, AttributeError):
         return [GENERAL_SKILL_ID]
 
     deduped = list(dict.fromkeys(picked))[:MAX_SKILLS_PER_ENTRY]
@@ -216,25 +211,16 @@ def organize(
         f'Content to organize:\n"""\n{truncated}\n"""{category_hint}'
     ).strip()
 
-    client = get_client()
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=4096,
-        system=_build_system_prompt(selected),
-        output_config={
-            "format": {"type": "json_schema", "schema": _build_schema(selected)},
-            "effort": "medium",
-        },
-        messages=[{"role": "user", "content": user_content}],
-    )
-
     ids = [s.id for s in selected]
-    if response.stop_reason == "refusal":
-        return _fallback(raw_text, ids)
-
-    try:
-        data = json.loads(first_text(response.content))
-    except (json.JSONDecodeError, TypeError):
+    data = llm.complete_json(
+        system=_build_system_prompt(selected),
+        user_content=user_content,
+        schema=_build_schema(selected),
+        max_tokens=4096,
+        effort="medium",
+        schema_name="entry_organization",
+    )
+    if data is None:
         return _fallback(raw_text, ids)
 
     data.setdefault("title", "Untitled entry")

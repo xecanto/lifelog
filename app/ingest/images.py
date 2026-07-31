@@ -2,8 +2,8 @@ import base64
 import uuid
 from pathlib import Path
 
-from app.claude_client import first_text, get_client
-from app.config import IMAGES_DIR, MODEL
+from app import llm
+from app.config import IMAGES_DIR
 from app.ingest.common import create_entry
 from app.prompts import load_prompt
 
@@ -29,28 +29,16 @@ def ingest_image(*, filename: str, content: bytes) -> dict:
     try:
         b64 = base64.standard_b64encode(content).decode("utf-8")
 
-        client = get_client()
-        response = client.messages.create(
-            model=MODEL,
+        described = llm.describe_image(
+            prompt=load_prompt("image_describe"),
+            media_type=media_type,
+            b64_data=b64,
             max_tokens=1024,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {"type": "base64", "media_type": media_type, "data": b64},
-                        },
-                        {"type": "text", "text": load_prompt("image_describe")},
-                    ],
-                }
-            ],
         )
-
-        if response.stop_reason == "refusal":
-            description = "(Claude declined to describe this image.)"
+        if described is None:
+            description = "(The model declined to describe this image.)"
         else:
-            description = first_text(response.content) or "(No description could be generated for this image.)"
+            description = described or "(No description could be generated for this image.)"
 
         return create_entry(
             source_type="image",

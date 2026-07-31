@@ -17,7 +17,6 @@ Two tiers, because they carry very different risk:
 
 from __future__ import annotations
 
-import json
 import re
 import shlex
 import subprocess
@@ -25,9 +24,8 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app import db, settings, skills
-from app.claude_client import first_text, get_client
-from app.config import BASE_DIR, MODEL, SKILLS_DIR
+from app import db, llm, settings, skills
+from app.config import BASE_DIR, SKILLS_DIR
 from app.facets import PROMOTABLE_COLUMNS
 from app.prompts import load_prompt
 
@@ -202,33 +200,16 @@ def validate_skill_file(name: str, content: str) -> tuple[str, skills.Skill]:
 def _run_skill_job(job: dict) -> str:
     existing = "\n".join(f"- {s.id}: {s.description}" for s in skills.list_skills())
 
-    client = get_client()
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=2048,
+    data = llm.complete_json(
         system=load_prompt("skill_author"),
-        output_config={
-            "format": {"type": "json_schema", "schema": SKILL_AUTHOR_SCHEMA},
-            "effort": "medium",
-        },
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"Existing skills:\n{existing}\n\n"
-                    f"Request:\n\"\"\"\n{job['prompt']}\n\"\"\""
-                ),
-            }
-        ],
+        user_content=f"Existing skills:\n{existing}\n\nRequest:\n\"\"\"\n{job['prompt']}\n\"\"\"",
+        schema=SKILL_AUTHOR_SCHEMA,
+        max_tokens=2048,
+        effort="medium",
+        schema_name="authored_skill",
     )
-
-    if response.stop_reason == "refusal":
+    if data is None:
         raise ValueError("The model declined to write this skill")
-
-    try:
-        data = json.loads(first_text(response.content))
-    except (json.JSONDecodeError, TypeError):
-        raise ValueError("Could not parse the authored skill file")
 
     name, skill = validate_skill_file(data.get("name", ""), data.get("file_content", ""))
     path = SKILLS_DIR / f"{name}.md"

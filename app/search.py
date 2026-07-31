@@ -5,12 +5,10 @@ needed at personal-journal scale) -- Claude does the semantic heavy lifting
 once it has the candidate entries in context.
 """
 
-import json
 import re
 
-from app import db
-from app.claude_client import first_text, get_client
-from app.config import MODEL, SEARCH_CANDIDATE_LIMIT, SEARCH_SNIPPET_LIMIT
+from app import db, llm
+from app.config import SEARCH_CANDIDATE_LIMIT, SEARCH_SNIPPET_LIMIT
 from app.prompts import load_prompt
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9']+")
@@ -110,31 +108,16 @@ def ask(question: str) -> dict:
     candidates = _search_candidates(question)
     context = _format_context(candidates) if candidates else "(No entries saved yet.)"
 
-    client = get_client()
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=2048,
+    data = llm.complete_json(
         system=load_prompt("ask_system"),
-        output_config={
-            "format": {"type": "json_schema", "schema": ANSWER_SCHEMA},
-            "effort": "medium",
-        },
-        messages=[
-            {
-                "role": "user",
-                "content": f"Knowledge base entries:\n\n{context}\n\n---\n\nQuestion: {question}",
-            }
-        ],
+        user_content=f"Knowledge base entries:\n\n{context}\n\n---\n\nQuestion: {question}",
+        schema=ANSWER_SCHEMA,
+        max_tokens=2048,
+        effort="medium",
+        schema_name="answer",
     )
-
-    if response.stop_reason == "refusal":
+    if data is None:
         return {"answer": "I can't help with that request.", "sources": []}
-
-    text = first_text(response.content)
-    try:
-        data = json.loads(text)
-    except (json.JSONDecodeError, TypeError):
-        data = {"answer": text or "Something went wrong generating an answer.", "source_ids": []}
 
     by_id = {e["id"]: e for e in candidates}
     sources = [by_id[i] for i in data.get("source_ids", []) if i in by_id]
