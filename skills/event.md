@@ -22,6 +22,8 @@ extra_schema:
 promote:
   due_at: starts_at
   cadence: recurring
+ask_if_missing:
+  starts_at: When does this happen? A date, and a time if it matters.
 ---
 Resolve relative dates ("next Tuesday", "the 14th") against today's date given
 at the top of the message, and prefer including the time when one is stated --

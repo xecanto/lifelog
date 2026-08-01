@@ -398,6 +398,27 @@ def list_due_facets(*, start: str | None = None, end: str | None = None) -> list
         return [facet_to_dict(r) for r in cur.fetchall()]
 
 
+def update_facet(facet_id: int, **fields) -> bool:
+    """Update a facet's content and its promoted columns.
+
+    Used when the user answers a follow-up question -- the facet is rebuilt
+    through the normal path so promotions stay normalized.
+    """
+    allowed = {"label", "data", "due_at", "cadence", "amount", "currency", "identity", "vendor"}
+    unknown = set(fields) - allowed
+    if unknown:
+        raise ValueError(f"Cannot update facet columns: {', '.join(sorted(unknown))}")
+    if not fields:
+        return False
+    if "data" in fields:
+        fields["data"] = json.dumps(fields["data"] or {})
+
+    assignments = ", ".join(f"{k} = ?" for k in fields)
+    with db_cursor() as cur:
+        cur.execute(f"UPDATE facets SET {assignments} WHERE id = ?", (*fields.values(), facet_id))
+        return cur.rowcount > 0
+
+
 def set_facet_status(facet_id: int, status: str) -> bool:
     if status not in FACET_STATUSES:
         raise ValueError(f"Invalid status '{status}'. Expected one of: {', '.join(FACET_STATUSES)}")

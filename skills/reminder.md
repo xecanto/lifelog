@@ -14,6 +14,8 @@ extra_schema:
     description: How far ahead of the underlying event the user wants warning, if stated (e.g. "3 days before", "a week before"), otherwise null.
 promote:
   due_at: remind_on
+ask_if_missing:
+  remind_on: When should this remind you?
 ---
 The whole point of this facet is that it comes back to the user at the right
 moment, so `remind_on` is what matters. Resolve every relative expression

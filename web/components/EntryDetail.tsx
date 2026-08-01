@@ -6,6 +6,7 @@ import { api, mediaUrl } from "@/lib/api";
 import type { Entry, Facet } from "@/lib/types";
 import { secondaryBtn } from "@/lib/ui";
 import FieldList from "@/components/FieldList";
+import ClarifyPanel from "@/components/ClarifyPanel";
 import { formatDue, formatMoney, relativeDue } from "@/lib/format";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -49,9 +50,18 @@ function FacetPanel({ facet }: { facet: Facet }) {
   );
 }
 
-export default function EntryDetail({ entry, mode }: { entry: Entry; mode: "page" | "modal" }) {
+export default function EntryDetail({
+  entry: initialEntry,
+  mode,
+}: {
+  entry: Entry;
+  mode: "page" | "modal";
+}) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
+  // Answering a follow-up question rewrites the facets, so this renders from
+  // local state rather than the prop.
+  const [entry, setEntry] = useState(initialEntry);
 
   const facets = entry.facets ?? [];
   const skills = Array.isArray(entry.metadata?.skills) ? (entry.metadata.skills as string[]) : [entry.skill];
@@ -122,6 +132,8 @@ export default function EntryDetail({ entry, mode }: { entry: Entry; mode: "page
           ))}
         </div>
       )}
+
+      <ClarifyPanel questions={entry.pending_questions ?? []} onAnswered={setEntry} />
 
       {hasVisibleMetadata && (
         <div className="mt-4 rounded-lg border border-border p-3.5">

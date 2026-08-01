@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import type { Entry } from "@/lib/types";
 import StatusMessage from "@/components/StatusMessage";
+import ClarifyPanel from "@/components/ClarifyPanel";
 import { primaryBtn, secondaryBtn } from "@/lib/ui";
 
 const URL_RE = /^(https?:\/\/\S+|(?:www\.)?[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/\S*)?)$/i;
@@ -176,6 +177,8 @@ export default function AddPage() {
           {saved.summary && <p className="mt-2 text-sm text-muted">{saved.summary}</p>}
         </div>
       )}
+
+      {saved && <ClarifyPanel questions={saved.pending_questions ?? []} onAnswered={setSaved} />}
     </div>
   );
 }

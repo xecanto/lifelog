@@ -13,12 +13,10 @@ Two Claude calls, both schema/prompt-driven from disk (nothing hardcoded):
    those becomes a facet row (see app/facets.py).
 """
 
-from datetime import datetime
-
 from app import llm
 from app.config import MAX_SKILLS_PER_ENTRY, ORGANIZE_TEXT_LIMIT
 from app.facets import LABEL_FIELD, LABEL_SCHEMA, build_facet
-from app.prompts import load_prompt
+from app.prompts import load_prompt, today_context
 from app.skills import GENERAL_SKILL_ID, Skill, get_skill, skills_menu
 
 BASE_PROPERTIES = {
@@ -45,16 +43,6 @@ BASE_PROPERTIES = {
     },
 }
 BASE_REQUIRED = ["title", "summary", "category", "tags"]
-
-
-def _today_context() -> str:
-    """Relative dates are useless to the model unless it knows what day it is.
-
-    "remind me Friday" / "renews on the 5th" are the common case for
-    reminders and subscriptions, so this is load-bearing for the agenda.
-    """
-    now = datetime.now().astimezone()
-    return f"Today is {now.strftime('%A, %d %B %Y')} ({now.strftime('%Y-%m-%d')})."
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +81,7 @@ def _select_skills(raw_text: str, source_type: str) -> list[str]:
         data = llm.complete_json(
             system=load_prompt("skill_selector"),
             user_content=(
-                f"{_today_context()}\n\nSkills:\n{menu_text}\n\n"
+                f"{today_context()}\n\nSkills:\n{menu_text}\n\n"
                 f'Content (may be truncated):\n"""\n{raw_text[:2000]}\n"""'
             ),
             schema=_skill_select_schema(ids),
@@ -217,7 +205,7 @@ def organize(
         )
 
     user_content = (
-        f"{_today_context()}\n\n{source_hint}\n\n"
+        f"{today_context()}\n\n{source_hint}\n\n"
         f'Content to organize:\n"""\n{truncated}\n"""{category_hint}'
     ).strip()
 

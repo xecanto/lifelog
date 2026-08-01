@@ -21,6 +21,8 @@ extra_schema:
 promote:
   vendor: service
   identity: account_identifier
+ask_if_missing:
+  account_identifier: Which email or username is this account under?
 ---
 This is the record that answers "which email did I use for X?" months later,
 so `account_identifier` is the most important field -- copy it exactly as

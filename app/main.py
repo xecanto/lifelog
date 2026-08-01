@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app import db, llm, selfmod, settings, skills
 from app.agenda import build_agenda, spend_summary
+from app.clarify import apply_answers, with_questions
 from app.claude_client import MissingAPIKeyError
 from app.config import AGENDA_DEFAULT_DAYS, CORS_ORIGINS, DATA_DIR
 from app.llm import LLMError
@@ -79,6 +80,12 @@ class AskIn(BaseModel):
     question: str
 
 
+class ClarifyIn(BaseModel):
+    """Free-text answers keyed by field name, e.g. {"cost": "ten a month"}."""
+
+    answers: dict[str, str]
+
+
 @app.post("/api/capture")
 async def add_capture(
     text: str | None = Form(default=None),
@@ -90,13 +97,16 @@ async def add_capture(
     user -- see app/ingest/capture.py.
     """
     content = await file.read() if file is not None else None
-    return _handle(
+    entry = _handle(
         capture,
         text=text,
         filename=file.filename if file is not None else None,
         content=content,
         content_type=file.content_type if file is not None else None,
     )
+    # Anything the skill wanted but couldn't extract comes back as a question,
+    # so the user is asked while the context is still fresh.
+    return with_questions(entry)
 
 
 @app.post("/api/entries/text")
@@ -143,7 +153,21 @@ def get_entry(entry_id: int) -> dict:
     entry = db.get_entry(entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
-    return entry
+    return with_questions(entry)
+
+
+@app.post("/api/facets/{facet_id}/clarify")
+def clarify_facet(facet_id: int, payload: ClarifyIn) -> dict:
+    """Answer the follow-up questions for one record.
+
+    Answers are free text; they're interpreted through the skill's own field
+    definitions so promoted columns stay in the shape queries expect.
+    """
+    if not db.get_facet(facet_id):
+        raise HTTPException(status_code=404, detail="Facet not found")
+    facet = _handle(apply_answers, facet_id=facet_id, answers=payload.answers)
+    entry = with_questions(db.get_entry(facet["entry_id"]))
+    return {"facet": facet, "entry": entry}
 
 
 @app.delete("/api/entries/{entry_id}")

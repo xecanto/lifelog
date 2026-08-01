@@ -25,6 +25,15 @@ export interface Facet {
   entry_source_type?: SourceType;
 }
 
+/** A field a skill wanted but the capture didn't provide. */
+export interface PendingQuestion {
+  facet_id: number;
+  /** The skill that wants it, e.g. "subscription". */
+  kind: string;
+  field: string;
+  question: string;
+}
+
 export interface Entry {
   id: number;
   created_at: string;
@@ -40,6 +49,8 @@ export interface Entry {
   original_filename: string | null;
   metadata: Record<string, unknown>;
   facets: Facet[];
+  /** Present on capture and single-entry fetches, not on list responses. */
+  pending_questions?: PendingQuestion[];
 }
 
 export interface Agenda {

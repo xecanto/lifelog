@@ -31,6 +31,11 @@ promote:
   cadence: billing_period
   due_at: next_renewal
   identity: account_identifier
+ask_if_missing:
+  cost: How much is it, and in what currency?
+  billing_period: Is it billed monthly, yearly, or something else?
+  next_renewal: When does it next renew or get charged?
+  paid_with: Which card or account is it charged to?
 ---
 This feeds both "what am I paying every month" and "what's about to renew",
 so cost, billing_period and next_renewal carry the most weight.

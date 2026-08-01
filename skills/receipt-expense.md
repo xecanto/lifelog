@@ -22,6 +22,8 @@ promote:
   amount: amount
   currency: currency
   vendor: merchant
+ask_if_missing:
+  amount: How much was it, and in what currency?
 ---
 Prefer the final total over subtotals.
 

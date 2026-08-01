@@ -28,5 +28,7 @@ cadence: null
 promote:
   due_at: next_follow_up
   vendor: company
+ask_if_missing:
+  next_follow_up: When should you follow up on this?
 ---
 Use this skill whenever the content describes progress on, or details of, a specific job application -- an application submitted, an interview scheduled, a recruiter conversation, an offer, or a rejection tied to one company/role. Extract company and role_title directly from the text; if the role isn't named, use a short generic description rather than inventing a title. Set stage based on the most recent status mentioned (default to 'applied' if the user just says they applied). Only fill compensation and source fields if explicitly mentioned -- do not guess salary figures or referral names. next_follow_up should capture any explicitly mentioned or clearly implied next action date (next interview, deadline to respond, when to check back); leave null if none is given rather than guessing a date.

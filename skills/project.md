@@ -18,9 +18,20 @@ extra_schema:
   next_step_due:
     type: ["string", "null"]
     description: ISO 8601 date (YYYY-MM-DD) for that next step if a date is given, otherwise null.
+  technologies:
+    type: array
+    items: {type: string}
+    description: Languages, frameworks, services, or tools this project is built with, as named. Empty array if none are mentioned.
+  link:
+    type: ["string", "null"]
+    description: A repo, deployment, or reference URL for the project if given, otherwise null.
 promote:
   vendor: project_name
   due_at: next_step_due
+ask_if_missing:
+  technologies: What is it built with? Languages, frameworks, services.
+  area: Is this work, a side project, a hobby, a game, or something you're learning?
+  status: Where does it stand right now -- idea, active, paused, blocked, or done?
 ---
 Use this for something with continuity -- a thing the user will come back to
 and add more notes about over time. A one-off thought about a project is

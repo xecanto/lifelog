@@ -11,6 +11,8 @@ extra_schema:
     description: One of "low", "medium", "high" if urgency is stated or implied, otherwise null.
 promote:
   due_at: due_date
+ask_if_missing:
+  due_date: When does this need to be done by?
 ---
 Only set due_date if a date is actually stated or unambiguously implied (e.g.
 "tomorrow", "next Friday") -- resolve it against today's date given at the top

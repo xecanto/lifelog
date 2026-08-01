@@ -99,6 +99,12 @@ export const api = {
 
   listFacetKinds: () => request<{ kinds: FacetKind[] }>("/api/facet-kinds"),
 
+  clarifyFacet: (facetId: number, answers: Record<string, string>) =>
+    request<{ facet: Facet; entry: Entry }>(`/api/facets/${facetId}/clarify`, {
+      method: "POST",
+      body: JSON.stringify({ answers }),
+    }),
+
   setFacetStatus: (id: number, status: FacetStatus) =>
     request<Facet>(`/api/facets/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
 
