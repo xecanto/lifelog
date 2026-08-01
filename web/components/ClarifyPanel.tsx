@@ -36,7 +36,13 @@ function FacetQuestions({
       // Only send what was actually typed — a blank stays unanswered and
       // will simply be asked again, rather than being recorded as empty.
       const given = Object.fromEntries(Object.entries(answers).filter(([, v]) => v.trim()));
-      const { entry } = await api.clarifyFacet(group.facetId, given);
+      const { entry, facet } = await api.clarifyFacet(group.facetId, given);
+      // A reply like "no idea" is valid but records nothing; without this the
+      // question would just silently reappear and look like a failed save.
+      if (facet.recorded_fields && facet.recorded_fields.length === 0) {
+        setError("Couldn't get a value out of that — try being more specific, or leave it blank.");
+        return;
+      }
       onAnswered(entry);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save those answers.");

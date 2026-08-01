@@ -23,6 +23,9 @@ export interface Facet {
   entry_title?: string;
   entry_category?: string;
   entry_source_type?: SourceType;
+  /** Set by a clarify call: which fields the answers actually filled in.
+   *  Empty means the reply carried no usable value. */
+  recorded_fields?: string[];
 }
 
 /** A field a skill wanted but the capture didn't provide. */
@@ -192,7 +195,12 @@ export interface Skill {
   id: string;
   description: string;
   applies_to: SourceType[];
+  /** This record's fields, in the order the skill declares them. */
   fields: string[];
+  /** Queryable column -> which of `fields` feeds it. */
+  promotes: Record<string, string>;
+  /** Fields the assistant asks about when they come back empty. */
+  asks: string[];
 }
 
 export interface AskResponse {

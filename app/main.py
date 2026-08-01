@@ -198,6 +198,12 @@ def get_categories() -> dict:
 
 @app.get("/api/skills")
 def get_skills() -> dict:
+    """Everything on disk under skills/, including the shape of each record.
+
+    The records dashboard builds its tabs and table columns from this, so a
+    new skill file produces a new tab with the right columns and no code
+    change anywhere.
+    """
     return {
         "skills": [
             {
@@ -205,6 +211,8 @@ def get_skills() -> dict:
                 "description": s.description,
                 "applies_to": s.applies_to,
                 "fields": list(s.extra_schema.keys()),
+                "promotes": s.promote,
+                "asks": list(s.ask_if_missing.keys()),
             }
             for s in skills.list_skills()
         ]

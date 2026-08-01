@@ -137,6 +137,14 @@ def apply_answers(*, facet_id: int, answers: dict[str, str]) -> dict:
     # Rebuild the facet through the normal path so promoted columns are
     # recomputed and normalized exactly as they are on first capture.
     accepted = {k: v for k, v in parsed.items() if k in fillable and v not in EMPTY}
+
+    if not accepted:
+        # "I don't know" is a legitimate reply, not an error. Record nothing
+        # so the field stays empty and gets asked again, and tell the caller
+        # so it can say the answer didn't land.
+        facet["recorded_fields"] = []
+        return facet
+
     merged = {**data, **accepted}
     rebuilt = build_facet(skill, {**merged, "label": facet.get("label") or ""})
     if rebuilt is None:
@@ -156,6 +164,8 @@ def apply_answers(*, facet_id: int, answers: dict[str, str]) -> dict:
     db.log_event(
         kind="clarification",
         entry_id=facet["entry_id"],
-        data={"facet_id": facet_id, "kind": facet["kind"], "fields": list(wanted)},
+        data={"facet_id": facet_id, "kind": facet["kind"], "fields": sorted(accepted)},
     )
-    return db.get_facet(facet_id)
+    updated = db.get_facet(facet_id)
+    updated["recorded_fields"] = sorted(accepted)
+    return updated

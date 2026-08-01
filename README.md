@@ -42,8 +42,14 @@ Two processes, run together in local dev:
 
 ## What it can ingest
 
-There's one box. Type, paste, drop a file, paste a screenshot, or hit record —
+There's one box. Type, paste, drop files, paste a screenshot, or hit record —
 `POST /api/capture` works out what you gave it, so you never pick a type.
+
+**Several files plus a note become one entry.** Three screenshots and a
+paragraph about a project describe one thing, so they're stored as one entry
+with an attachment per file; each file's extracted text is labelled with its
+filename before the organizer sees it, so the entry can still say which is
+which.
 
 | Type  | Detected from |
 |-------|---------------|
@@ -126,6 +132,7 @@ app/                 FastAPI backend
   llm.py               One interface over Claude/OpenAI/Gemini/Grok/DeepSeek
   selfmod.py           Self-modification: authors skills, runs the coding agent
   reflect.py           Reviews usage and proposes what's missing
+  clarify.py           Asks about fields a skill wanted but didn't get
   ingest/capture.py     Works out whether an input is text, a link, a file, ...
   search.py            Ask: FTS5 retrieval + Claude answer with citations
   graph.py             Builds the knowledge graph (entries + tags + TF-IDF edges)
@@ -145,6 +152,7 @@ web/                  Next.js frontend (App Router)
                               navigated to from inside the app (proper back-stack --
                               browser Back closes the modal instead of leaving the page)
     agenda/              What's overdue, due today, and upcoming (+ monthly spend)
+    records/             Every structured record; tabs and columns from the skill files
     ask/                 Ask a question over your saved entries
     graph/               3D force-directed knowledge graph (lazy-loaded, client-only)
     skills/               Read-only view of whatever's in the backend's skills/ dir
@@ -183,6 +191,8 @@ extra_schema:
     description: ISO 8601 date, or null.
 promote:                         # optional -- see Facets below
   due_at: when_due
+ask_if_missing:                  # optional -- asked when left empty
+  when_due: When is this due?
 ---
 Any extra instructions for how to fill in the fields above.
 ```
@@ -229,6 +239,47 @@ original always survives in `data`.
 
 Today's date is sent with every organize call, so "tomorrow", "next Friday"
 and "renews on the 5th" resolve to real dates.
+
+### It asks instead of storing a blank
+
+When a capture leaves a field empty that the skill says matters, the app asks
+rather than recording a null nobody notices. Which fields are worth asking
+about is declared in the skill's own frontmatter:
+
+```yaml
+ask_if_missing:
+  cost: How much is it, and in what currency?
+  billing_period: Is it billed monthly, yearly, or something else?
+```
+
+(A plain list of field names works too — the field's `description` becomes the
+question.) **No Python knows a subscription has a "cost"**: add the key to the
+markdown and the app starts asking.
+
+Answers are free text, so they go back through the model using that skill's
+own field definitions — which is what keeps a promoted column in the shape
+queries expect. "eight dollars a month" becomes `amount 8.0`, `currency USD`,
+`cadence monthly`.
+
+Two details that matter in use:
+
+- A reply often carries more than the field it was asked about, so **every
+  still-empty field is offered**, not just the one asked. Fields that already
+  hold a value are never offered, so an answer can't quietly overwrite
+  something.
+- "I don't know" records nothing and leaves the question open, rather than
+  storing an empty value the app would then stop asking about.
+
+### Records
+
+`/records` is a dashboard of every structured record, and **it is generated
+entirely from what's on disk**: the tabs come from the facet kinds that
+actually exist, and each table's columns come from that skill's
+`extra_schema`. Add a skill file and a new tab appears with the right columns
+— there is no per-kind table or view anywhere in the backend.
+
+Columns with no values across the current rows are dropped, so a skill with
+eight fields where six are always empty doesn't render six empty columns.
 
 ### The agenda
 
