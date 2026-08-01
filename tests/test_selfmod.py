@@ -245,6 +245,43 @@ def test_a_missing_agent_reports_clearly_and_restores_the_branch(fake_repo):
     assert git_out(fake_repo, "rev-parse", "--abbrev-ref", "HEAD") in ("master", "main")
 
 
+def test_a_job_orphaned_by_a_restart_is_failed_not_left_running():
+    """Jobs run on a thread in this process, so a `running` row at startup
+    means the process died -- typically the dev server reloading because the
+    code job edited the source it was watching."""
+    job = selfmod.create_request(title="x", prompt="do a thing", kind="code")
+    db.claim_job(job["id"])
+    assert db.get_job(job["id"])["status"] == "running"
+
+    assert db.reconcile_running_jobs() == 1
+
+    recovered = db.get_job(job["id"])
+    assert recovered["status"] == "failed"
+    assert "Interrupted" in recovered["error"]
+    assert recovered["finished_at"]
+
+
+def test_reconcile_leaves_finished_jobs_alone():
+    done = selfmod.create_request(title="a", prompt="p", kind="skill")
+    db.update_job(done["id"], status="succeeded")
+    pending = selfmod.create_request(title="b", prompt="p", kind="skill")
+
+    assert db.reconcile_running_jobs() == 0
+    assert db.get_job(done["id"])["status"] == "succeeded"
+    assert db.get_job(pending["id"])["status"] == "pending"
+
+
+def test_being_stranded_on_a_selfmod_branch_is_reported(fake_repo):
+    """The finally block can't restore the branch if the process was killed,
+    which leaves the app running the agent's code."""
+    subprocess.run(["git", "checkout", "-q", "-b", "selfmod/7-leftover"], cwd=fake_repo, capture_output=True)
+
+    problems = selfmod.preflight_code()
+
+    assert any("selfmod/7-leftover" in p for p in problems)
+    assert any("running that job's changes, not your own" in p for p in problems)
+
+
 def test_a_manual_run_overrides_the_settings(fake_repo):
     settings.set_many({"self_modification_enabled": False})
     job = selfmod.create_request(title="Later", prompt="Change to v2", kind="code")

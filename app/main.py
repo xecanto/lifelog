@@ -36,6 +36,10 @@ app.mount("/media", StaticFiles(directory=DATA_DIR / "storage"), name="media")
 @app.on_event("startup")
 def on_startup() -> None:
     db.init_db()
+    # A code job edits the source this server may be watching, so a reload can
+    # kill the thread running it. Anything still marked `running` in a fresh
+    # process is orphaned -- fail it so it doesn't sit there forever.
+    db.reconcile_running_jobs()
 
 
 def _handle(fn, *args, **kwargs) -> dict:

@@ -596,6 +596,31 @@ def list_entries_by_skill(skill: str, limit: int = 40) -> list[dict]:
         return [row_to_dict(r) for r in cur.fetchall()]
 
 
+def reconcile_running_jobs() -> int:
+    """Fail jobs left `running` by a process that died mid-flight.
+
+    Jobs execute on a thread inside this process, so at startup nothing can
+    legitimately still be running: any such row is a job whose process was
+    killed -- most often by the dev server reloading when a code job edited
+    the source it was watching. Left alone they'd sit at `running` forever.
+    """
+    message = (
+        "Interrupted: the server restarted while this job was running. If it was a code "
+        "change, check `git branch` and `git status` -- the working tree may have been "
+        "left on its selfmod branch."
+    )
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE mod_jobs
+            SET status = 'failed', error = ?, finished_at = ?, updated_at = ?
+            WHERE status = 'running'
+            """,
+            (message, now_iso(), now_iso()),
+        )
+        return cur.rowcount
+
+
 def count_jobs_by_status() -> dict[str, int]:
     with db_cursor() as cur:
         cur.execute("SELECT status, COUNT(*) AS c FROM mod_jobs GROUP BY status")

@@ -282,6 +282,18 @@ def preflight_code() -> list[str]:
         problems.append("Not a git repository -- run `git init` first so changes can be undone")
         return problems
 
+    # A job returns you to your original branch in a finally block, but that
+    # can't run if the process was killed first -- which is exactly what a
+    # reloading dev server does when a code job edits the source. Being left
+    # here means the app is running the agent's code, not yours.
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    if branch.startswith("selfmod/"):
+        problems.append(
+            f"You are on `{branch}`, left over from an interrupted code job -- so the app is "
+            "running that job's changes, not your own. Review them, then `git checkout` back "
+            "to your main branch."
+        )
+
     if _git("status", "--porcelain"):
         problems.append(
             "The working tree has uncommitted changes. Commit or stash them first, "

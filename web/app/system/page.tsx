@@ -23,50 +23,59 @@ function SettingRow({
   onChange: (key: string, value: boolean | number | string) => void;
   disabled?: boolean;
 }) {
+  const isCheckbox = setting.type === "bool";
+
   return (
     <div className={`border-t border-border py-3 first:border-t-0 ${disabled ? "opacity-50" : ""}`}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0 sm:flex-1">
           <label htmlFor={setting.key} className="text-sm font-semibold">
             {setting.label}
           </label>
           <p className="mt-0.5 text-xs text-muted">{setting.description}</p>
         </div>
-        {setting.type === "bool" ? (
-          <input
-            id={setting.key}
-            type="checkbox"
-            checked={Boolean(setting.value)}
-            disabled={disabled}
-            onChange={(e) => onChange(setting.key, e.target.checked)}
-            className="mt-0.5 size-5 shrink-0 accent-accent cursor-pointer disabled:cursor-default"
-          />
-        ) : setting.choices ? (
-          <select
-            id={setting.key}
-            value={String(setting.value)}
-            disabled={disabled}
-            onChange={(e) => onChange(setting.key, e.target.value)}
-            className="w-52 shrink-0 rounded-lg border border-border bg-background px-3 py-2 text-sm"
-          >
-            {setting.choices.map((choice) => (
-              <option key={choice} value={choice}>
-                {choice}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <input
-            id={setting.key}
-            type={setting.type === "int" ? "number" : "text"}
-            value={String(setting.value)}
-            disabled={disabled}
-            onChange={(e) =>
-              onChange(setting.key, setting.type === "int" ? Number(e.target.value) : e.target.value)
-            }
-            className={`${textInput} w-52 shrink-0`}
-          />
-        )}
+
+        {/* The control is sized by this wrapper, never by its own width class.
+            `textInput` already carries w-full, and pairing that with a w-52 on
+            the same element let w-full win — the field took the whole row and
+            crushed the label column to one character wide. */}
+        <div className={`shrink-0 ${isCheckbox ? "" : "w-full sm:w-52"}`}>
+          {isCheckbox ? (
+            <input
+              id={setting.key}
+              type="checkbox"
+              checked={Boolean(setting.value)}
+              disabled={disabled}
+              onChange={(e) => onChange(setting.key, e.target.checked)}
+              className="mt-0.5 size-5 accent-accent cursor-pointer disabled:cursor-default"
+            />
+          ) : setting.choices ? (
+            <select
+              id={setting.key}
+              value={String(setting.value)}
+              disabled={disabled}
+              onChange={(e) => onChange(setting.key, e.target.value)}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            >
+              {setting.choices.map((choice) => (
+                <option key={choice} value={choice}>
+                  {choice}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id={setting.key}
+              type={setting.type === "int" ? "number" : "text"}
+              value={String(setting.value)}
+              disabled={disabled}
+              onChange={(e) =>
+                onChange(setting.key, setting.type === "int" ? Number(e.target.value) : e.target.value)
+              }
+              className={textInput}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

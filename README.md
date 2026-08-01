@@ -322,9 +322,33 @@ Settings (all on `/system`, stored in the database):
 | `agent_command` | `claude` | The CLI to invoke; use a full path if it isn't on PATH. The prompt is appended as `-p <prompt>`, without a shell. |
 | `agent_timeout_seconds` | 900 | How long the agent may run. |
 
-Note that a code job edits files while the app is running, so a dev server
-with `--reload` will restart mid-job. The job returns you to your original
-branch when it finishes, so the final state is whatever you had before.
+### Running a code job without breaking the server
+
+A code job edits the source **while the server is running**, and jobs execute
+on a thread inside that server process. If you started the backend with
+`--reload`, the reloader sees the agent's edits and restarts the worker —
+which kills the thread running the job. When that happens:
+
+- The `finally` block that returns you to your original branch never runs, so
+  the working tree is **left on the `selfmod/` branch**. The app is then
+  running the agent's code rather than yours.
+- The job would sit at `running` forever with nothing to finish it.
+
+Both are now handled rather than silently broken:
+
+- On startup, any job still marked `running` is failed with an explanation —
+  in a fresh process nothing can legitimately still be running.
+- Preflight detects being stranded on a `selfmod/` branch and says so on
+  `/system`, before you start another job on top of it.
+
+**Run the backend without `--reload` when you're using the code tier**:
+
+```sh
+.venv\Scripts\uvicorn app.main:app
+```
+
+The skill tier is unaffected — it only writes to `skills/`, which isn't
+watched, and those files are re-read from disk on every request anyway.
 
 ## Learning from use
 
