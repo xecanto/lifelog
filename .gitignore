@@ -8,3 +8,6 @@ data/
 # Portable Claude Code state -- contains .credentials.json (auth tokens),
 # session transcripts, and machine-specific paths. Never commit.
 .claude-portable/
+Open-Project.cmd
+Portable-Claude.ps1
+Sync-Claude-History.cmd
