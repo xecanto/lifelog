@@ -38,6 +38,7 @@ def create_entry(
     file_path: str | None = None,
     original_filename: str | None = None,
     metadata: dict | None = None,
+    attachments: list[dict] | None = None,
 ) -> dict:
     """Organize raw_text with Claude and persist the resulting entry."""
     existing_categories = [c["category"] for c in db.list_categories() if c["category"]]
@@ -65,6 +66,15 @@ def create_entry(
         original_filename=original_filename,
         metadata=combined_metadata,
     )
+
+    for attachment in attachments or []:
+        db.insert_attachment(
+            entry_id=entry_id,
+            source_type=attachment.get("source_type", "file"),
+            file_path=attachment["file_path"],
+            original_filename=attachment.get("original_filename", ""),
+            extracted_text=attachment.get("text", ""),
+        )
 
     for facet in meta.get("facets", []):
         db.insert_facet(entry_id=entry_id, **facet)

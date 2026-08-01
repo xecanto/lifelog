@@ -14,12 +14,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from app.ingest.files import TEXT_EXTENSIONS
-from app.ingest.files import ingest_file
-from app.ingest.images import ingest_image
+from app.ingest.common import create_entry
+from app.ingest.files import TEXT_EXTENSIONS, store_and_extract
+from app.ingest.images import store_and_describe
 from app.ingest.links import ingest_link
 from app.ingest.text import ingest_text
-from app.ingest.voice import ingest_voice
+from app.ingest.voice import store_and_transcribe
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".webm", ".flac", ".mp4"}
@@ -69,31 +69,44 @@ def detect_source(*, text: str | None = None, filename: str | None = None, conte
     return "text"
 
 
+def _extract_one(*, filename: str, content: bytes, content_type: str | None) -> dict:
+    """Store one uploaded file and pull its text out."""
+    source = detect_source(filename=filename, content_type=content_type)
+    if source == "image":
+        return store_and_describe(filename=filename, content=content)
+    if source == "voice":
+        return store_and_transcribe(filename=filename, content=content)
+    return store_and_extract(filename=filename, content=content)
+
+
 def capture(
     *,
     text: str | None = None,
     filename: str | None = None,
     content: bytes | None = None,
     content_type: str | None = None,
+    files: list[dict] | None = None,
 ) -> dict:
-    """Ingest whatever was given, choosing the source type automatically."""
-    source = detect_source(text=text, filename=filename, content_type=content_type)
+    """Ingest whatever was given, choosing the source type automatically.
 
-    if source == "empty":
-        raise ValueError("Nothing to capture -- type something, or drop in a file")
-
-    if source in ("image", "voice", "file"):
-        if content is None:
-            raise ValueError("No file content was uploaded")
-        name = filename or "upload"
-        if source == "image":
-            return ingest_image(filename=name, content=content)
-        if source == "voice":
-            return ingest_voice(filename=name, content=content)
-        return ingest_file(filename=name, content=content)
+    `files` is a list of {filename, content, content_type}. Several files plus
+    a note become ONE entry with several attachments: three screenshots and a
+    paragraph about a project describe one thing, and splitting them into
+    separate entries would lose that.
+    """
+    uploads = list(files or [])
+    if content is not None:
+        uploads.append({"filename": filename or "upload", "content": content, "content_type": content_type})
 
     stripped = (text or "").strip()
-    if source == "link":
+
+    if uploads:
+        return _capture_files(stripped, uploads)
+
+    if not stripped:
+        raise ValueError("Nothing to capture -- type something, or drop in a file")
+
+    if detect_source(text=stripped) == "link":
         url = stripped if stripped.lower().startswith(("http://", "https://")) else f"https://{stripped}"
         try:
             return ingest_link(url)
@@ -103,3 +116,48 @@ def capture(
             return ingest_text(stripped)
 
     return ingest_text(stripped)
+
+
+def _capture_files(note: str, uploads: list[dict]) -> dict:
+    extracted = [
+        _extract_one(
+            filename=upload.get("filename") or "upload",
+            content=upload["content"],
+            content_type=upload.get("content_type"),
+        )
+        for upload in uploads
+    ]
+
+    # The organizer only sees text, so each file's extraction is labelled with
+    # its filename -- that's what lets one entry describe three screenshots
+    # and still say which is which.
+    parts = []
+    if note:
+        parts.append(note)
+    for item in extracted:
+        label = item["original_filename"] or item["source_type"]
+        parts.append(f"[{item['source_type']}: {label}]\n{item['text']}")
+    raw_text = "\n\n".join(parts).strip()
+
+    kinds = {item["source_type"] for item in extracted}
+    primary = extracted[0]
+    source_type = primary["source_type"] if len(kinds) == 1 else "file"
+
+    if len(extracted) == 1:
+        hint = f"This is content from an uploaded {primary['source_type']} named '{primary['original_filename']}'."
+    else:
+        hint = (
+            f"This entry has {len(extracted)} attachments "
+            f"({', '.join(sorted(kinds))}) that all describe the same thing"
+            + (", plus a note the user typed alongside them." if note else ".")
+        )
+
+    return create_entry(
+        source_type=source_type,
+        raw_text=raw_text,
+        source_hint=hint,
+        file_path=primary["file_path"],
+        original_filename=primary["original_filename"],
+        metadata={"attachment_count": len(extracted)},
+        attachments=extracted,
+    )

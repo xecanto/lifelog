@@ -89,22 +89,22 @@ class ClarifyIn(BaseModel):
 @app.post("/api/capture")
 async def add_capture(
     text: str | None = Form(default=None),
-    file: UploadFile | None = File(default=None),
+    files: list[UploadFile] = File(default=[]),
 ) -> dict:
-    """One endpoint for anything: typed text, a URL, a file, image, or audio.
+    """One endpoint for anything: typed text, a URL, files, images, or audio.
 
     The source type is worked out from the input rather than chosen by the
-    user -- see app/ingest/capture.py.
+    user, and several files plus a note become one entry -- see
+    app/ingest/capture.py.
     """
-    content = await file.read() if file is not None else None
-    entry = _handle(
-        capture,
-        text=text,
-        filename=file.filename if file is not None else None,
-        content=content,
-        content_type=file.content_type if file is not None else None,
-    )
-    # Anything the skill wanted but couldn't extract comes back as a question,
+    uploads = [
+        {"filename": f.filename, "content": await f.read(), "content_type": f.content_type}
+        # An empty file input still posts a part with no filename.
+        for f in files
+        if f is not None and f.filename
+    ]
+    entry = _handle(capture, text=text, files=uploads)
+    # Anything a skill wanted but couldn't extract comes back as a question,
     # so the user is asked while the context is still fresh.
     return with_questions(entry)
 

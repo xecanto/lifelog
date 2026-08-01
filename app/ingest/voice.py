@@ -23,7 +23,8 @@ def transcribe(path: Path) -> str:
     return " ".join(segment.text.strip() for segment in segments).strip()
 
 
-def ingest_voice(*, filename: str, content: bytes) -> dict:
+def store_and_transcribe(*, filename: str, content: bytes) -> dict:
+    """Store the audio and transcribe it, without creating an entry."""
     ext = Path(filename).suffix.lower()
     if ext not in _ALLOWED_EXTENSIONS:
         raise ValueError(
@@ -43,14 +44,26 @@ def ingest_voice(*, filename: str, content: bytes) -> dict:
         if not transcript:
             raise ValueError("Could not transcribe any speech from this audio")
 
-        return create_entry(
-            source_type="voice",
-            raw_text=transcript,
-            source_hint=f"This is a transcript of a voice memo named '{filename}'.",
-            file_path=stored_path.relative_to(AUDIO_DIR.parent.parent).as_posix(),
-            original_filename=filename,
-            metadata={"extension": ext},
-        )
+        return {
+            "source_type": "voice",
+            "text": transcript,
+            "file_path": stored_path.relative_to(AUDIO_DIR.parent.parent).as_posix(),
+            "original_filename": filename,
+            "extension": ext,
+        }
     except Exception:
         stored_path.unlink(missing_ok=True)
         raise
+
+
+def ingest_voice(*, filename: str, content: bytes) -> dict:
+    extracted = store_and_transcribe(filename=filename, content=content)
+    return create_entry(
+        source_type="voice",
+        raw_text=extracted["text"],
+        source_hint=f"This is a transcript of a voice memo named '{filename}'.",
+        file_path=extracted["file_path"],
+        original_filename=filename,
+        metadata={"extension": extracted["extension"]},
+        attachments=[extracted],
+    )

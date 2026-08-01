@@ -133,6 +133,39 @@ def test_vision_uses_the_openai_image_block(openai_ready):
     assert block["image_url"]["url"] == "data:image/png;base64,QUJD"
 
 
+def test_anthropic_vision_path_builds_a_native_image_block(monkeypatch):
+    """The Anthropic transport uses a different content shape from the
+    OpenAI-compatible one, and only the latter was covered -- which let a
+    stale client call sit in this path unnoticed."""
+    import types
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
+    settings.set_many({"llm_provider": "anthropic", "llm_model": "", "llm_base_url": ""})
+
+    captured = {}
+
+    def fake_create(**kwargs):
+        captured.update(kwargs)
+        return types.SimpleNamespace(
+            stop_reason="end_turn",
+            content=[types.SimpleNamespace(type="text", text="A receipt.")],
+        )
+
+    monkeypatch.setattr(
+        llm,
+        "_anthropic_client",
+        lambda key, base_url: types.SimpleNamespace(
+            messages=types.SimpleNamespace(create=fake_create)
+        ),
+    )
+
+    assert llm.describe_image(prompt="describe", media_type="image/png", b64_data="QUJD") == "A receipt."
+
+    block = captured["messages"][0]["content"][0]
+    assert block["type"] == "image"
+    assert block["source"] == {"type": "base64", "media_type": "image/png", "data": "QUJD"}
+
+
 def test_provider_without_vision_refuses_clearly(deepseek_ready):
     with pytest.raises(llm.LLMError, match="can't process images"):
         llm.describe_image(prompt="d", media_type="image/png", b64_data="QUJD")

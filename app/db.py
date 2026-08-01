@@ -117,6 +117,22 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS events_kind_idx ON events(kind);
 CREATE INDEX IF NOT EXISTS events_created_idx ON events(created_at);
+
+-- Several files can belong to one entry: a project is often three
+-- screenshots plus a paragraph of notes, and splitting those into separate
+-- entries loses the fact that they describe the same thing. entries.file_path
+-- still points at the first attachment so older callers keep working.
+CREATE TABLE IF NOT EXISTS attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    original_filename TEXT NOT NULL DEFAULT '',
+    extracted_text TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS attachments_entry_idx ON attachments(entry_id);
 """
 
 # Facet lifecycle. Anything time-bound stays `open` until you act on it --
@@ -232,6 +248,8 @@ def get_entry(entry_id: int) -> dict | None:
         entry = row_to_dict(row)
         cur.execute("SELECT * FROM facets WHERE entry_id = ? ORDER BY id", (entry_id,))
         entry["facets"] = [facet_to_dict(r) for r in cur.fetchall()]
+        cur.execute("SELECT * FROM attachments WHERE entry_id = ? ORDER BY id", (entry_id,))
+        entry["attachments"] = [dict(r) for r in cur.fetchall()]
         return entry
 
 
@@ -250,6 +268,32 @@ def list_entries(*, limit: int = 50, offset: int = 0, category: str | None = Non
         entries = [row_to_dict(r) for r in cur.fetchall()]
         _attach_facets(cur, entries)
         return entries
+
+
+def insert_attachment(
+    *,
+    entry_id: int,
+    source_type: str,
+    file_path: str,
+    original_filename: str = "",
+    extracted_text: str = "",
+) -> int:
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO attachments
+                (entry_id, created_at, source_type, file_path, original_filename, extracted_text)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (entry_id, now_iso(), source_type, file_path, original_filename, extracted_text),
+        )
+        return cur.lastrowid
+
+
+def list_attachments(entry_id: int) -> list[dict]:
+    with db_cursor() as cur:
+        cur.execute("SELECT * FROM attachments WHERE entry_id = ? ORDER BY id", (entry_id,))
+        return [dict(r) for r in cur.fetchall()]
 
 
 def _attach_facets(cur, entries: list[dict]) -> None:

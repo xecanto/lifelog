@@ -344,8 +344,7 @@ def describe_image(*, prompt: str, media_type: str, b64_data: str, max_tokens: i
     if spec.transport == "anthropic":
         import anthropic
 
-        _require_key(spec)
-        client = get_client()
+        client = _anthropic_client(_require_key(spec), active_base_url(spec))
         try:
             response = client.messages.create(
                 model=model,

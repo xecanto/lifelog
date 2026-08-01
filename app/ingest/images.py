@@ -16,7 +16,8 @@ _MEDIA_TYPES = {
 }
 
 
-def ingest_image(*, filename: str, content: bytes) -> dict:
+def store_and_describe(*, filename: str, content: bytes) -> dict:
+    """Store the image and describe it, without creating an entry."""
     ext = Path(filename).suffix.lower()
     media_type = _MEDIA_TYPES.get(ext)
     if not media_type:
@@ -28,7 +29,6 @@ def ingest_image(*, filename: str, content: bytes) -> dict:
 
     try:
         b64 = base64.standard_b64encode(content).decode("utf-8")
-
         described = llm.describe_image(
             prompt=load_prompt("image_describe"),
             media_type=media_type,
@@ -40,14 +40,26 @@ def ingest_image(*, filename: str, content: bytes) -> dict:
         else:
             description = described or "(No description could be generated for this image.)"
 
-        return create_entry(
-            source_type="image",
-            raw_text=description,
-            source_hint=f"This is a description of an uploaded image named '{filename}'.",
-            file_path=stored_path.relative_to(IMAGES_DIR.parent.parent).as_posix(),
-            original_filename=filename,
-            metadata={"extension": ext},
-        )
+        return {
+            "source_type": "image",
+            "text": description,
+            "file_path": stored_path.relative_to(IMAGES_DIR.parent.parent).as_posix(),
+            "original_filename": filename,
+            "extension": ext,
+        }
     except Exception:
         stored_path.unlink(missing_ok=True)
         raise
+
+
+def ingest_image(*, filename: str, content: bytes) -> dict:
+    extracted = store_and_describe(filename=filename, content=content)
+    return create_entry(
+        source_type="image",
+        raw_text=extracted["text"],
+        source_hint=f"This is a description of an uploaded image named '{filename}'.",
+        file_path=extracted["file_path"],
+        original_filename=filename,
+        metadata={"extension": extracted["extension"]},
+        attachments=[extracted],
+    )

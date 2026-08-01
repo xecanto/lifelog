@@ -42,11 +42,12 @@ export function mediaUrl(filePath: string): string {
 }
 
 export const api = {
-  /** One call for anything — the backend works out what it is. */
-  capture: ({ text, file }: { text?: string; file?: File }) => {
+  /** One call for anything — the backend works out what it is.
+   *  Several files plus a note become a single entry. */
+  capture: ({ text, files }: { text?: string; files?: File[] }) => {
     const form = new FormData();
     if (text) form.append("text", text);
-    if (file) form.append("file", file);
+    for (const file of files ?? []) form.append("files", file);
     return request<Entry>("/api/capture", { method: "POST", body: form });
   },
 

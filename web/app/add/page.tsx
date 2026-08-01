@@ -10,13 +10,26 @@ import { primaryBtn, secondaryBtn } from "@/lib/ui";
 
 const URL_RE = /^(https?:\/\/\S+|(?:www\.)?[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/\S*)?)$/i;
 
+function describeFile(file: File): string {
+  const type = file.type || "";
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("audio/") || type === "video/mp4") return "audio";
+  return "document";
+}
+
 /** Mirrors app/ingest/capture.py so the UI can say what it's about to do. */
-function describeInput(text: string, file: File | null): string {
-  if (file) {
-    const type = file.type || "";
-    if (type.startsWith("image/")) return "Image — described so you can search it";
-    if (type.startsWith("audio/") || type === "video/mp4") return "Audio — transcribed on your machine";
+function describeInput(text: string, files: File[]): string {
+  if (files.length === 1) {
+    const kind = describeFile(files[0]);
+    if (kind === "image") return "Image — described so you can search it";
+    if (kind === "audio") return "Audio — transcribed on your machine";
     return "Document — text will be extracted";
+  }
+  if (files.length > 1) {
+    // Several files become ONE entry, which is the surprising part worth
+    // saying out loud before the user hits save.
+    const kinds = [...new Set(files.map(describeFile))];
+    return `${files.length} ${kinds.join(" + ")} files → one entry`;
   }
   const trimmed = text.trim();
   if (!trimmed) return "";
@@ -30,7 +43,7 @@ export default function AddPage() {
   const chunksRef = useRef<Blob[]>([]);
 
   const [text, setText] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -39,8 +52,13 @@ export default function AddPage() {
 
   function reset() {
     setText("");
-    setFile(null);
+    setFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function addFiles(incoming: FileList | File[] | null) {
+    const list = Array.from(incoming ?? []);
+    if (list.length) setFiles((prev) => [...prev, ...list]);
   }
 
   async function toggleRecording() {
@@ -55,7 +73,7 @@ export default function AddPage() {
       recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        setFile(new File([blob], "recording.webm", { type: "audio/webm" }));
+        addFiles([new File([blob], `recording-${Date.now()}.webm`, { type: "audio/webm" })]);
         stream.getTracks().forEach((t) => t.stop());
         setRecording(false);
       };
@@ -70,29 +88,28 @@ export default function AddPage() {
 
   // A pasted screenshot arrives as a file on the clipboard, not as text.
   function handlePaste(e: React.ClipboardEvent) {
-    const pasted = Array.from(e.clipboardData.files)[0];
-    if (pasted) {
+    const pasted = Array.from(e.clipboardData.files);
+    if (pasted.length) {
       e.preventDefault();
-      setFile(pasted);
+      addFiles(pasted);
     }
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragging(false);
-    const dropped = e.dataTransfer.files[0];
-    if (dropped) setFile(dropped);
+    addFiles(e.dataTransfer.files);
   }
 
   async function submit() {
-    if (!text.trim() && !file) {
+    if (!text.trim() && !files.length) {
       return setStatus({ text: "Type something, or drop in a file.", kind: "error" });
     }
     setBusy(true);
     setStatus({ text: "" });
     setSaved(null);
     try {
-      const entry = await api.capture({ text: text.trim() || undefined, file: file ?? undefined });
+      const entry = await api.capture({ text: text.trim() || undefined, files });
       reset();
       setSaved(entry);
     } catch (err) {
@@ -102,7 +119,7 @@ export default function AddPage() {
     }
   }
 
-  const detected = describeInput(text, file);
+  const detected = describeInput(text, files);
 
   return (
     <div>
@@ -124,12 +141,23 @@ export default function AddPage() {
           onPaste={handlePaste}
         />
 
-        {file && (
-          <div className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
-            <span className="min-w-0 flex-1 truncate">{file.name}</span>
-            <button onClick={() => setFile(null)} className="text-xs text-muted cursor-pointer hover:text-accent">
-              remove
-            </button>
+        {files.length > 0 && (
+          <div className="mt-2 flex flex-col gap-1.5">
+            {files.map((f, i) => (
+              <div
+                key={`${f.name}-${i}`}
+                className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
+              >
+                <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                <span className="shrink-0 text-xs text-muted">{Math.round(f.size / 1024)} KB</span>
+                <button
+                  onClick={() => setFiles((prev) => prev.filter((_, index) => index !== i))}
+                  className="shrink-0 text-xs text-muted cursor-pointer hover:text-accent"
+                >
+                  remove
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
@@ -147,8 +175,12 @@ export default function AddPage() {
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           className="hidden"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          onChange={(e) => {
+            addFiles(e.target.files);
+            e.target.value = "";
+          }}
         />
       </div>
 

@@ -34,6 +34,18 @@ export interface PendingQuestion {
   question: string;
 }
 
+/** One file belonging to an entry. An entry can have several. */
+export interface Attachment {
+  id: number;
+  entry_id: number;
+  created_at: string;
+  source_type: SourceType;
+  file_path: string;
+  original_filename: string;
+  /** What was read out of it: a description, a transcript, or extracted text. */
+  extracted_text: string;
+}
+
 export interface Entry {
   id: number;
   created_at: string;
@@ -51,6 +63,7 @@ export interface Entry {
   facets: Facet[];
   /** Present on capture and single-entry fetches, not on list responses. */
   pending_questions?: PendingQuestion[];
+  attachments?: Attachment[];
 }
 
 export interface Agenda {

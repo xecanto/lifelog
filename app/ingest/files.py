@@ -26,7 +26,12 @@ def _extract_text_file(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace").strip()
 
 
-def ingest_file(*, filename: str, content: bytes) -> dict:
+def store_and_extract(*, filename: str, content: bytes) -> dict:
+    """Store the file and pull its text out, without creating an entry.
+
+    Split from ingest_file so several files can be combined into one entry
+    (see app/ingest/capture.py).
+    """
     ext = Path(filename).suffix.lower()
     if ext not in TEXT_EXTENSIONS and ext not in (".pdf", ".docx"):
         raise ValueError(
@@ -48,14 +53,26 @@ def ingest_file(*, filename: str, content: bytes) -> dict:
         if not raw_text:
             raise ValueError("Could not extract any text from this file")
 
-        return create_entry(
-            source_type="file",
-            raw_text=raw_text,
-            source_hint=f"This is text extracted from an uploaded file named '{filename}'.",
-            file_path=stored_path.relative_to(FILES_DIR.parent.parent).as_posix(),
-            original_filename=filename,
-            metadata={"extension": ext},
-        )
+        return {
+            "source_type": "file",
+            "text": raw_text,
+            "file_path": stored_path.relative_to(FILES_DIR.parent.parent).as_posix(),
+            "original_filename": filename,
+            "extension": ext,
+        }
     except Exception:
         stored_path.unlink(missing_ok=True)
         raise
+
+
+def ingest_file(*, filename: str, content: bytes) -> dict:
+    extracted = store_and_extract(filename=filename, content=content)
+    return create_entry(
+        source_type="file",
+        raw_text=extracted["text"],
+        source_hint=f"This is text extracted from an uploaded file named '{filename}'.",
+        file_path=extracted["file_path"],
+        original_filename=filename,
+        metadata={"extension": extracted["extension"]},
+        attachments=[extracted],
+    )

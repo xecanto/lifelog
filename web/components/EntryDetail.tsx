@@ -64,6 +64,7 @@ export default function EntryDetail({
   const [entry, setEntry] = useState(initialEntry);
 
   const facets = entry.facets ?? [];
+  const attachments = entry.attachments ?? [];
   const skills = Array.isArray(entry.metadata?.skills) ? (entry.metadata.skills as string[]) : [entry.skill];
   const hasVisibleMetadata = Object.entries(entry.metadata || {}).some(
     ([key, value]) => !HIDDEN_METADATA_KEYS.has(key) && value !== null && value !== "" && value !== undefined
@@ -108,12 +109,45 @@ export default function EntryDetail({
         ))}
       </div>
 
-      {entry.source_type === "image" && entry.file_path && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={mediaUrl(entry.file_path)} alt="" className="mt-4 max-w-full rounded-lg" />
-      )}
-      {entry.source_type === "voice" && entry.file_path && (
-        <audio src={mediaUrl(entry.file_path)} controls className="mt-4 w-full" />
+      {attachments.length > 0 ? (
+        <div className="mt-4 flex flex-col gap-3">
+          {attachments.map((attachment) => (
+            <div key={attachment.id}>
+              {attachment.source_type === "image" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={mediaUrl(attachment.file_path)}
+                  alt={attachment.original_filename}
+                  className="max-w-full rounded-lg"
+                />
+              ) : attachment.source_type === "voice" ? (
+                <audio src={mediaUrl(attachment.file_path)} controls className="w-full" />
+              ) : (
+                <a
+                  href={mediaUrl(attachment.file_path)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block rounded-lg border border-border px-3 py-2 text-sm text-accent"
+                >
+                  {attachment.original_filename || "Download file"}
+                </a>
+              )}
+              {attachments.length > 1 && attachment.original_filename && (
+                <p className="mt-1 text-xs text-muted">{attachment.original_filename}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
+          {entry.source_type === "image" && entry.file_path && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={mediaUrl(entry.file_path)} alt="" className="mt-4 max-w-full rounded-lg" />
+          )}
+          {entry.source_type === "voice" && entry.file_path && (
+            <audio src={mediaUrl(entry.file_path)} controls className="mt-4 w-full" />
+          )}
+        </>
       )}
       {entry.source_url && (
         <p className="mt-3 text-sm">
