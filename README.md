@@ -133,6 +133,7 @@ app/                 FastAPI backend
   selfmod.py           Self-modification: authors skills, runs the coding agent
   reflect.py           Reviews usage and proposes what's missing
   clarify.py           Asks about fields a skill wanted but didn't get
+  matching.py          Updates an existing record instead of duplicating it
   ingest/capture.py     Works out whether an input is text, a link, a file, ...
   search.py            Ask: FTS5 retrieval + Claude answer with citations
   graph.py             Builds the knowledge graph (entries + tags + TF-IDF edges)
@@ -193,6 +194,7 @@ promote:                         # optional -- see Facets below
   due_at: when_due
 ask_if_missing:                  # optional -- asked when left empty
   when_due: When is this due?
+identity_fields: [some_field]    # optional -- lets it update, not duplicate
 ---
 Any extra instructions for how to fill in the fields above.
 ```
@@ -269,6 +271,54 @@ Two details that matter in use:
   something.
 - "I don't know" records nothing and leaves the question open, rather than
   storing an empty value the app would then stop asking about.
+
+### Updating a record instead of duplicating it
+
+"I subscribed to Notion, $10/month" and, later, "Notion went up to $12"
+describe *one* subscription. Without matching, the second note creates a
+second record and the dashboard slowly fills with duplicates.
+
+Which fields make two records the same is declared per skill:
+
+```yaml
+identity_fields: [service]      # a subscription is identified by its service
+```
+
+**A skill that declares none is never matched** — each receipt, journal entry
+and meeting note is its own thing, and merging those would lose data. Of the
+shipped skills only `subscription`, `account`, `project`, `job-application`,
+`document` and `contact` are updatable.
+
+Matching is deliberately cautious, because the two failure modes are not
+equally bad: a duplicate row is easy to spot and delete, while a wrong merge
+quietly corrupts a record you rely on.
+
+- Candidates are shortlisted on the identity fields alone, so most captures
+  never reach the model at all.
+- The model must return **high** confidence for a merge to happen; anything
+  less creates a new record.
+- If the provider is unavailable, a new record is created rather than a
+  guessed merge.
+- **Nothing is overwritten without the previous value being recorded** in
+  `facet_revisions`. The History link on `/records` shows every change and
+  what it replaced.
+- An empty incoming value never clears a field: "I cancelled Notion" doesn't
+  wipe the price just because that note didn't mention it.
+
+### Lifecycle: `status`
+
+A record's own state word can be promoted onto the facet's lifecycle:
+
+```yaml
+promote:
+  status: state        # "cancelled" -> done, "active" -> open
+```
+
+This matters more than it looks. Without it a cancelled subscription stays
+`open` — still on the agenda, still counted in your monthly spend. Words like
+cancelled, expired, rejected and withdrawn map to `done`; active, paused and
+in-progress map to `open`. An unrecognized word leaves the status untouched
+rather than blanking it.
 
 ### Records
 

@@ -6,6 +6,7 @@ extra_schema:
   person_name:
     type: ["string", "null"]
     description: The name of the person this entry is about, if stated.
+identity_fields: [person_name]
 ---
 Focus the summary on what's distinctive or useful to remember about this
 person for next time (how the user met them, what they do, shared context).

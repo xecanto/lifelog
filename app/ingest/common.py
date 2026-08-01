@@ -1,4 +1,4 @@
-from app import db, selfmod
+from app import db, matching, selfmod, skills
 from app.organize import organize
 
 # The skill whose facets describe a change to the app itself.
@@ -76,7 +76,27 @@ def create_entry(
             extracted_text=attachment.get("text", ""),
         )
 
+    updated_records = []
     for facet in meta.get("facets", []):
+        skill = skills.get_skill(facet["kind"])
+
+        # A skill that declares identity_fields can update an existing record
+        # instead of creating a duplicate -- see app/matching.py.
+        existing = matching.find_match(skill, facet) if skill and skill.updatable else None
+        if existing is not None:
+            merged = matching.apply_update(
+                existing=existing, skill=skill, incoming=facet, entry_id=entry_id
+            )
+            updated_records.append(
+                {
+                    "facet_id": merged["id"],
+                    "kind": merged["kind"],
+                    "label": merged.get("label", ""),
+                    "changed_fields": merged.get("changed_fields", []),
+                }
+            )
+            continue
+
         db.insert_facet(entry_id=entry_id, **facet)
         if facet.get("kind") == FEATURE_REQUEST_KIND:
             _queue_modification(entry_id, facet)
@@ -90,7 +110,12 @@ def create_entry(
             "category": meta.get("category", ""),
             "facet_kinds": [f.get("kind") for f in meta.get("facets", [])],
             "tags": meta.get("tags", []),
+            "updated_records": [u["facet_id"] for u in updated_records],
         },
     )
 
-    return db.get_entry(entry_id)
+    entry = db.get_entry(entry_id)
+    # Records this note updated rather than created live on other entries, so
+    # say so explicitly or the capture looks like it produced nothing.
+    entry["updated_records"] = updated_records
+    return entry

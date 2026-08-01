@@ -26,12 +26,14 @@ extra_schema:
     type: ["string", "null"]
     description: A repo, deployment, or reference URL for the project if given, otherwise null.
 promote:
+  status: status
   vendor: project_name
   due_at: next_step_due
 ask_if_missing:
   technologies: What is it built with? Languages, frameworks, services.
   area: Is this work, a side project, a hobby, a game, or something you're learning?
   status: Where does it stand right now -- idea, active, paused, blocked, or done?
+identity_fields: [project_name]
 ---
 Use this for something with continuity -- a thing the user will come back to
 and add more notes about over time. A one-off thought about a project is

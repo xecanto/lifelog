@@ -262,6 +262,14 @@ def get_facet_kinds() -> dict:
     return {"kinds": db.list_facet_kinds()}
 
 
+@app.get("/api/facets/{facet_id}/revisions")
+def get_facet_revisions(facet_id: int) -> dict:
+    """How this record changed over time, and what each change replaced."""
+    if not db.get_facet(facet_id):
+        raise HTTPException(status_code=404, detail="Facet not found")
+    return {"revisions": db.list_facet_revisions(facet_id)}
+
+
 @app.patch("/api/facets/{facet_id}")
 def update_facet(facet_id: int, payload: FacetStatusIn) -> dict:
     try:

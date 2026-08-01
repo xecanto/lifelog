@@ -23,6 +23,7 @@ promote:
   due_at: expires_on
 ask_if_missing:
   expires_on: When does it expire or need renewing?
+identity_fields: [document_type, issuer]
 ---
 The highest-value field here is `expires_on` -- an expiring passport or policy
 that surfaces a month early is the main reason to record a document at all.

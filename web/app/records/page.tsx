@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import type { Facet, FacetKind, Skill, SpendSummary } from "@/lib/types";
+import RecordHistory from "@/components/RecordHistory";
 import { formatDue, formatMoney, relativeDue, titleCase } from "@/lib/format";
 import { secondaryBtn } from "@/lib/ui";
 
@@ -189,6 +190,9 @@ export default function RecordsPage() {
                     {facet.status !== "open" && (
                       <div className="text-xs text-muted">{facet.status}</div>
                     )}
+                    <div className="mt-0.5">
+                      <RecordHistory facetId={facet.id} />
+                    </div>
                   </td>
                   {columns.map((field) => (
                     <td key={field} className="px-3 py-2">

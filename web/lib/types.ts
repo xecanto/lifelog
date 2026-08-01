@@ -49,6 +49,23 @@ export interface Attachment {
   extracted_text: string;
 }
 
+/** A record this capture updated instead of creating fresh. */
+export interface UpdatedRecord {
+  facet_id: number;
+  kind: string;
+  label: string;
+  changed_fields: string[];
+}
+
+/** One change to a record, with the values it replaced. */
+export interface FacetRevision {
+  id: number;
+  facet_id: number;
+  entry_id: number | null;
+  created_at: string;
+  changes: Record<string, { from: unknown; to: unknown }>;
+}
+
 export interface Entry {
   id: number;
   created_at: string;
@@ -67,6 +84,8 @@ export interface Entry {
   /** Present on capture and single-entry fetches, not on list responses. */
   pending_questions?: PendingQuestion[];
   attachments?: Attachment[];
+  /** Set on capture: existing records this note updated rather than duplicated. */
+  updated_records?: UpdatedRecord[];
 }
 
 export interface Agenda {

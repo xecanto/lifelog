@@ -8,6 +8,7 @@ import type {
   Facet,
   FacetKind,
   FacetListResponse,
+  FacetRevision,
   FacetStatus,
   GraphData,
   JobKind,
@@ -99,6 +100,9 @@ export const api = {
   },
 
   listFacetKinds: () => request<{ kinds: FacetKind[] }>("/api/facet-kinds"),
+
+  facetRevisions: (facetId: number) =>
+    request<{ revisions: FacetRevision[] }>(`/api/facets/${facetId}/revisions`),
 
   clarifyFacet: (facetId: number, answers: Record<string, string>) =>
     request<{ facet: Facet; entry: Entry }>(`/api/facets/${facetId}/clarify`, {

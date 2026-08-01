@@ -43,7 +43,16 @@ class Skill:
     # that a subscription has a "cost" -- add the key to the markdown and the
     # app starts asking.
     ask_if_missing: dict[str, str] = field(default_factory=dict)
+    # Which fields make two records "the same thing", e.g. a subscription is
+    # identified by its service. A skill that declares none is never matched
+    # against existing records -- each receipt or journal entry is its own
+    # thing, and merging those would be wrong.
+    identity_fields: list[str] = field(default_factory=list)
     instructions: str = ""
+
+    @property
+    def updatable(self) -> bool:
+        return bool(self.identity_fields)
 
     def question_for(self, field_name: str) -> str:
         """The question to ask for a field, falling back to its description."""
@@ -90,6 +99,7 @@ def parse_skill_text(text: str, *, fallback_id: str = "") -> Skill | None:
         extra_schema=meta.get("extra_schema") or {},
         promote=meta.get("promote") or {},
         ask_if_missing=ask_if_missing,
+        identity_fields=[str(f) for f in (meta.get("identity_fields") or [])],
         instructions=body.strip(),
     )
 

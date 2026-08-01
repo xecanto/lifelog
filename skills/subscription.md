@@ -24,7 +24,11 @@ extra_schema:
   account_identifier:
     type: ["string", "null"]
     description: The email or username the subscription is under, if stated, otherwise null.
+  state:
+    type: ["string", "null"]
+    description: 'Whether it is still running: "active" if ongoing, "cancelled" if the user has ended it. Null if not stated.'
 promote:
+  status: state
   vendor: service
   amount: cost
   currency: currency
@@ -36,6 +40,7 @@ ask_if_missing:
   billing_period: Is it billed monthly, yearly, or something else?
   next_renewal: When does it next renew or get charged?
   paid_with: Which card or account is it charged to?
+identity_fields: [service]
 ---
 This feeds both "what am I paying every month" and "what's about to renew",
 so cost, billing_period and next_renewal carry the most weight.

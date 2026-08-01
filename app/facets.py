@@ -35,7 +35,20 @@ LABEL_SCHEMA = {
     ),
 }
 
-PROMOTABLE_COLUMNS = ("due_at", "cadence", "amount", "currency", "identity", "vendor")
+PROMOTABLE_COLUMNS = ("due_at", "cadence", "amount", "currency", "identity", "vendor", "status")
+
+# A record's own lifecycle word mapped onto the facet lifecycle. Without this
+# a cancelled subscription stays `open` -- still on the agenda, still counted
+# in monthly spend -- which is worse than not recording the cancellation.
+_STATUS_ALIASES = {
+    "open": "open", "active": "open", "ongoing": "open", "current": "open",
+    "pending": "open", "in progress": "open", "paused": "open", "blocked": "open",
+    "idea": "open", "applied": "open", "interview": "open", "offer": "open",
+    "done": "done", "complete": "done", "completed": "done", "finished": "done",
+    "cancelled": "done", "canceled": "done", "ended": "done", "closed": "done",
+    "expired": "done", "lapsed": "done", "rejected": "done", "withdrawn": "done",
+    "abandoned": "dismissed", "dropped": "dismissed", "dismissed": "dismissed",
+}
 
 _DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 _TIME_RE = re.compile(r"[T ](\d{2}):(\d{2})")
@@ -169,7 +182,23 @@ def normalize_text(value) -> str | None:
     return text or None
 
 
+def normalize_status(value) -> str | None:
+    """Map a record's own state word onto the facet lifecycle."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip().lower()
+    if not text:
+        return None
+    if text in _STATUS_ALIASES:
+        return _STATUS_ALIASES[text]
+    for alias, canonical in _STATUS_ALIASES.items():
+        if re.search(rf"\b{re.escape(alias)}\b", text):
+            return canonical
+    return None
+
+
 _NORMALIZERS = {
+    "status": normalize_status,
     "due_at": normalize_date,
     "amount": normalize_amount,
     "currency": normalize_currency,
@@ -210,8 +239,12 @@ def build_facet(skill: Skill, data: dict) -> dict | None:
     for column, field_name in (skill.promote or {}).items():
         if column not in PROMOTABLE_COLUMNS:
             continue  # unknown column in a skill file -- ignore, don't crash
-        normalizer = _NORMALIZERS[column]
-        facet[column] = normalizer(payload.get(field_name))
+        value = _NORMALIZERS[column](payload.get(field_name))
+        # `status` is NOT NULL with a default, so an unrecognized state word
+        # must leave it alone rather than blanking it.
+        if column == "status" and value is None:
+            continue
+        facet[column] = value
 
     # A subscription that names a price but no billing period is almost
     # always monthly; assuming that beats leaving it out of spend totals.

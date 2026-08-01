@@ -133,6 +133,20 @@ CREATE TABLE IF NOT EXISTS attachments (
 );
 
 CREATE INDEX IF NOT EXISTS attachments_entry_idx ON attachments(entry_id);
+
+-- Every change to a record, with the values it replaced. Saying "Notion went
+-- up to $12" updates the existing subscription rather than creating a second
+-- one -- but a wrong match must be recoverable, so nothing is overwritten
+-- without the previous value being written down first.
+CREATE TABLE IF NOT EXISTS facet_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    facet_id INTEGER NOT NULL REFERENCES facets(id) ON DELETE CASCADE,
+    entry_id INTEGER REFERENCES entries(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    changes TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS facet_revisions_facet_idx ON facet_revisions(facet_id);
 """
 
 # Facet lifecycle. Anything time-bound stays `open` until you act on it --
@@ -448,7 +462,10 @@ def update_facet(facet_id: int, **fields) -> bool:
     Used when the user answers a follow-up question -- the facet is rebuilt
     through the normal path so promotions stay normalized.
     """
-    allowed = {"label", "data", "due_at", "cadence", "amount", "currency", "identity", "vendor"}
+    allowed = {
+        "label", "data", "due_at", "cadence", "amount",
+        "currency", "identity", "vendor", "status",
+    }
     unknown = set(fields) - allowed
     if unknown:
         raise ValueError(f"Cannot update facet columns: {', '.join(sorted(unknown))}")
@@ -461,6 +478,29 @@ def update_facet(facet_id: int, **fields) -> bool:
     with db_cursor() as cur:
         cur.execute(f"UPDATE facets SET {assignments} WHERE id = ?", (*fields.values(), facet_id))
         return cur.rowcount > 0
+
+
+def insert_facet_revision(*, facet_id: int, entry_id: int | None, changes: dict) -> int:
+    """Record what a change replaced, so a wrong match can be undone."""
+    with db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO facet_revisions (facet_id, entry_id, created_at, changes) VALUES (?, ?, ?, ?)",
+            (facet_id, entry_id, now_iso(), json.dumps(changes or {})),
+        )
+        return cur.lastrowid
+
+
+def list_facet_revisions(facet_id: int) -> list[dict]:
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT * FROM facet_revisions WHERE facet_id = ? ORDER BY id DESC", (facet_id,)
+        )
+        rows = []
+        for row in cur.fetchall():
+            d = dict(row)
+            d["changes"] = json.loads(d.get("changes") or "{}")
+            rows.append(d)
+        return rows
 
 
 def set_facet_status(facet_id: int, status: str) -> bool:

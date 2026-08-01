@@ -6,6 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import type { Entry } from "@/lib/types";
 import StatusMessage from "@/components/StatusMessage";
 import ClarifyPanel from "@/components/ClarifyPanel";
+import { titleCase } from "@/lib/format";
 import { primaryBtn, secondaryBtn } from "@/lib/ui";
 
 const URL_RE = /^(https?:\/\/\S+|(?:www\.)?[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/\S*)?)$/i;
@@ -207,6 +208,26 @@ export default function AddPage() {
             ))}
           </div>
           {saved.summary && <p className="mt-2 text-sm text-muted">{saved.summary}</p>}
+
+          {(saved.updated_records ?? []).length > 0 && (
+            <div className="mt-3 border-t border-border pt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                Updated, not duplicated
+              </p>
+              {saved.updated_records!.map((record) => (
+                <p key={record.facet_id} className="mt-1 text-sm">
+                  <Link href={`/records`} className="font-medium text-accent">
+                    {record.label || record.kind}
+                  </Link>{" "}
+                  <span className="text-muted">
+                    {record.changed_fields.length
+                      ? `— changed ${record.changed_fields.map(titleCase).join(", ").toLowerCase()}`
+                      : "— nothing new to record"}
+                  </span>
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
