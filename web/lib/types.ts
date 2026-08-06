@@ -248,3 +248,61 @@ export interface GraphData {
   nodes: GraphNode[];
   links: GraphLink[];
 }
+
+/* ---------------------------------------------------------------------------
+   Model usage
+
+   Every call to a provider is metered, so the app can say what it spent and
+   on what. `costUsd` totals only the calls whose model has a known rate --
+   `unpriced` counts the rest, so the UI can say the total is partial rather
+   than quietly under-reporting it.
+--------------------------------------------------------------------------- */
+
+export interface UsageTotals {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_usd: number;
+  failed: number;
+  unpriced: number;
+}
+
+/** Totals for one day, model, operation, or provider. */
+export type UsageBucket = UsageTotals & { name: string };
+export type UsageDay = UsageTotals & { day: string };
+
+export interface LlmCall {
+  id: number;
+  created_at: string;
+  provider: string;
+  model: string;
+  operation: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_usd: number | null;
+  duration_ms: number;
+  ok: number;
+  error: string;
+}
+
+export interface ModelRate {
+  model: string;
+  input_per_mtok: number;
+  output_per_mtok: number;
+}
+
+export interface UsageResponse {
+  days: number;
+  window: UsageTotals;
+  all_time: UsageTotals;
+  daily: UsageDay[];
+  by_model: UsageBucket[];
+  by_operation: UsageBucket[];
+  by_provider: UsageBucket[];
+  recent: LlmCall[];
+  rates: ModelRate[];
+}

@@ -130,6 +130,7 @@ def apply_answers(*, facet_id: int, answers: dict[str, str]) -> dict:
         max_tokens=1024,
         effort="low",
         schema_name="clarification",
+        operation="clarify",
     )
     if parsed is None:
         raise ValueError("The model could not interpret those answers")

@@ -12,6 +12,8 @@ import type {
 } from "@/lib/types";
 import JobCard from "@/components/JobCard";
 import StatusMessage from "@/components/StatusMessage";
+import SubNav from "@/components/SubNav";
+import { MANAGE_TABS } from "@/lib/nav";
 import { primaryBtn, secondaryBtn, textInput } from "@/lib/ui";
 
 function SettingRow({
@@ -232,6 +234,8 @@ export default function SystemPage() {
 
   return (
     <div>
+      <SubNav tabs={MANAGE_TABS} />
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight">System</h1>
       <section className="mb-6 rounded-[10px] border border-border bg-surface p-4 shadow-sm">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Model</h2>
         <p className="mt-1.5 text-sm text-muted">

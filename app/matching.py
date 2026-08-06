@@ -131,6 +131,7 @@ def find_match(skill, facet: dict) -> dict | None:
             max_tokens=400,
             effort="low",
             schema_name="record_match",
+            operation="match_record",
         )
     except llm.LLMError:
         # If matching is unavailable, create a new record. A duplicate is

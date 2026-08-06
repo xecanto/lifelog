@@ -32,12 +32,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 
 import httpx
 
-from app import settings
+from app import pricing, settings
 from app.claude_client import MissingAPIKeyError, first_text
 
 _TIMEOUT = 120.0
@@ -243,6 +244,67 @@ def _schema_instructions(schema: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Usage accounting
+# ---------------------------------------------------------------------------
+#
+# Every call through here is metered so the app can answer "what did this
+# cost". The two transports report tokens under different names, so each
+# normalizes into the same four counters before anything is written down.
+
+
+def _anthropic_usage(response) -> dict:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return {}
+    return {
+        "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+        "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+        "cache_read_tokens": getattr(usage, "cache_read_input_tokens", 0) or 0,
+        "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", 0) or 0,
+    }
+
+
+def _openai_usage(data: dict) -> dict:
+    usage = data.get("usage") or {}
+    if not isinstance(usage, dict):
+        return {}
+    cached = 0
+    details = usage.get("prompt_tokens_details")
+    if isinstance(details, dict):
+        cached = details.get("cached_tokens") or 0
+    # OpenAI-compatible providers report cached tokens *inside* prompt_tokens,
+    # where Anthropic reports them alongside. Subtracting keeps both meaning
+    # "tokens billed at the full input rate".
+    return {
+        "input_tokens": max((usage.get("prompt_tokens") or 0) - cached, 0),
+        "output_tokens": usage.get("completion_tokens") or 0,
+        "cache_read_tokens": cached,
+        "cache_write_tokens": 0,
+    }
+
+
+def _record(spec: ProviderSpec, model: str, operation: str, started: float, usage: dict, error: str = "") -> None:
+    from app import db
+
+    counts = {
+        "input_tokens": usage.get("input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0),
+        "cache_read_tokens": usage.get("cache_read_tokens", 0),
+        "cache_write_tokens": usage.get("cache_write_tokens", 0),
+    }
+    db.log_llm_call(
+        provider=spec.id,
+        model=model,
+        operation=operation,
+        cost_usd=pricing.cost_usd(model=model, **counts),
+        duration_ms=int((time.monotonic() - started) * 1000),
+        ok=not error,
+        error=error,
+        **counts,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Text -> JSON
 # ---------------------------------------------------------------------------
 
@@ -255,21 +317,32 @@ def complete_json(
     max_tokens: int = 2048,
     effort: str = "medium",
     schema_name: str = "response",
+    operation: str = "other",
 ) -> dict | None:
     """Ask the active provider for JSON matching `schema`.
 
     Returns the parsed object, or None if the model refused. Raises LLMError
-    for anything else that went wrong.
+    for anything else that went wrong. `operation` is the label this call is
+    filed under on the usage page -- e.g. "organize", "ask", "clarify".
     """
     spec = active_provider()
     model = active_model(spec)
+    started = time.monotonic()
 
-    if spec.transport == "anthropic":
-        return _anthropic_json(spec, model, system, user_content, schema, max_tokens, effort)
-    return _openai_json(spec, model, system, user_content, schema, max_tokens, schema_name)
+    try:
+        if spec.transport == "anthropic":
+            value, usage = _anthropic_json(spec, model, system, user_content, schema, max_tokens, effort)
+        else:
+            value, usage = _openai_json(spec, model, system, user_content, schema, max_tokens, schema_name)
+    except Exception as exc:
+        _record(spec, model, operation, started, {}, error=str(exc))
+        raise
+
+    _record(spec, model, operation, started, usage)
+    return value
 
 
-def _anthropic_json(spec, model, system, user_content, schema, max_tokens, effort) -> dict | None:
+def _anthropic_json(spec, model, system, user_content, schema, max_tokens, effort) -> tuple[dict | None, dict]:
     import anthropic
 
     client = _anthropic_client(_require_key(spec), active_base_url(spec))
@@ -289,12 +362,13 @@ def _anthropic_json(spec, model, system, user_content, schema, max_tokens, effor
     except anthropic.APIConnectionError:
         raise LLMError(f"Could not reach {spec.label}. Check your internet connection.")
 
+    usage = _anthropic_usage(response)
     if response.stop_reason == "refusal":
-        return None
-    return parse_json_loosely(first_text(response.content))
+        return None, usage
+    return parse_json_loosely(first_text(response.content)), usage
 
 
-def _openai_json(spec, model, system, user_content, schema, max_tokens, schema_name) -> dict | None:
+def _openai_json(spec, model, system, user_content, schema, max_tokens, schema_name) -> tuple[dict | None, dict]:
     system_prompt = system
     body: dict = {
         "model": model,
@@ -319,10 +393,11 @@ def _openai_json(spec, model, system, user_content, schema, max_tokens, schema_n
     ]
 
     data = _post_openai(spec, body)
+    usage = _openai_usage(data)
     message = _first_choice(data)
     if message.get("refusal"):
-        return None
-    return parse_json_loosely(message.get("content") or "")
+        return None, usage
+    return parse_json_loosely(message.get("content") or ""), usage
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +405,14 @@ def _openai_json(spec, model, system, user_content, schema, max_tokens, schema_n
 # ---------------------------------------------------------------------------
 
 
-def describe_image(*, prompt: str, media_type: str, b64_data: str, max_tokens: int = 1024) -> str | None:
+def describe_image(
+    *,
+    prompt: str,
+    media_type: str,
+    b64_data: str,
+    max_tokens: int = 1024,
+    operation: str = "describe_image",
+) -> str | None:
     """Describe an image with the active provider. None means it refused."""
     spec = active_provider()
     model = active_model(spec)
@@ -341,6 +423,18 @@ def describe_image(*, prompt: str, media_type: str, b64_data: str, max_tokens: i
             "or save this as a file instead."
         )
 
+    started = time.monotonic()
+    try:
+        value, usage = _describe_image(spec, model, prompt, media_type, b64_data, max_tokens)
+    except Exception as exc:
+        _record(spec, model, operation, started, {}, error=str(exc))
+        raise
+
+    _record(spec, model, operation, started, usage)
+    return value
+
+
+def _describe_image(spec, model, prompt, media_type, b64_data, max_tokens) -> tuple[str | None, dict]:
     if spec.transport == "anthropic":
         import anthropic
 
@@ -367,9 +461,10 @@ def describe_image(*, prompt: str, media_type: str, b64_data: str, max_tokens: i
         except anthropic.APIConnectionError:
             raise LLMError(f"Could not reach {spec.label}. Check your internet connection.")
 
+        usage = _anthropic_usage(response)
         if response.stop_reason == "refusal":
-            return None
-        return first_text(response.content)
+            return None, usage
+        return first_text(response.content), usage
 
     body = {
         "model": model,
@@ -385,10 +480,11 @@ def describe_image(*, prompt: str, media_type: str, b64_data: str, max_tokens: i
         ],
     }
     data = _post_openai(spec, body)
+    usage = _openai_usage(data)
     message = _first_choice(data)
     if message.get("refusal"):
-        return None
-    return message.get("content") or ""
+        return None, usage
+    return message.get("content") or "", usage
 
 
 # ---------------------------------------------------------------------------

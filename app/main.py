@@ -1,10 +1,12 @@
+from datetime import datetime, timedelta, timezone
+
 import anthropic
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import db, llm, selfmod, settings, skills
+from app import db, llm, pricing, selfmod, settings, skills
 from app.agenda import build_agenda, spend_summary
 from app.clarify import apply_answers, with_questions
 from app.claude_client import MissingAPIKeyError
@@ -404,6 +406,34 @@ def run_reflection(dry_run: bool = False) -> dict:
     filing anything.
     """
     return _handle(reflect, dry_run=dry_run)
+
+
+# ---------------------------------------------------------------------------
+# Model usage and spend
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/usage")
+def get_usage(days: int = 30, recent: int = 25) -> dict:
+    """Token and dollar totals for the last `days`, plus all-time.
+
+    The window total and the all-time total are both returned so the page can
+    show "this month" without losing "since you started".
+    """
+    days = max(1, min(days, 365))
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    return {
+        "days": days,
+        "window": db.usage_summary(since=since),
+        "all_time": db.usage_summary(),
+        "daily": db.usage_daily(days=days),
+        "by_model": db.usage_by("model", since=since),
+        "by_operation": db.usage_by("operation", since=since),
+        "by_provider": db.usage_by("provider", since=since),
+        "recent": db.list_llm_calls(limit=max(1, min(recent, 200))),
+        "rates": pricing.known_models(),
+    }
 
 
 # ---------------------------------------------------------------------------

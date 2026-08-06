@@ -7,6 +7,9 @@ import type { Facet, FacetKind, Skill, SpendSummary } from "@/lib/types";
 import RecordHistory from "@/components/RecordHistory";
 import { formatDue, formatMoney, relativeDue, titleCase } from "@/lib/format";
 import { secondaryBtn } from "@/lib/ui";
+import SubNav from "@/components/SubNav";
+import { PageHeader } from "@/components/ui";
+import { LIBRARY_TABS } from "@/lib/nav";
 
 /** Render one cell. Arrays are common (technologies, ingredients, attendees). */
 function Cell({ value }: { value: unknown }) {
@@ -111,6 +114,11 @@ export default function RecordsPage() {
 
   return (
     <div>
+      <SubNav tabs={LIBRARY_TABS} />
+      <PageHeader
+        title="Records"
+        description="The structured things pulled out of what you saved, grouped by kind."
+      />
       <div className="mb-4 flex flex-wrap gap-1.5">
         {kinds.map((k) => (
           <button

@@ -15,14 +15,16 @@ export default function RootLayout({
   modal: React.ReactNode;
 }>) {
   return (
-    // Browser extensions stamp attributes onto <html> before React hydrates
-    // (e.g. data-datablur-ready), which React reports as a hydration mismatch
-    // even though nothing here is wrong. This suppression applies to this one
-    // element only -- real mismatches inside the app still surface.
+    // Browser extensions stamp attributes onto <html> and <body> before React
+    // hydrates (e.g. data-datablur-ready, style="visibility:visible"), which
+    // React reports as a hydration mismatch even though nothing here is wrong.
+    // This suppression applies to these two elements only -- real mismatches
+    // inside the app still surface.
     <html lang="en" className="h-full antialiased" suppressHydrationWarning>
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <Nav />
-        <main className="mx-auto w-full max-w-3xl flex-1 px-5 py-7">{children}</main>
+        {/* pb-24 on small screens clears the fixed mobile tab bar. */}
+        <main className="mx-auto w-full max-w-4xl flex-1 px-5 pt-7 pb-24 sm:pb-10">{children}</main>
         {modal}
       </body>
     </html>

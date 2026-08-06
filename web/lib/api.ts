@@ -19,6 +19,7 @@ import type {
   Setting,
   Skill,
   SystemStatus,
+  UsageResponse,
 } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
@@ -142,4 +143,6 @@ export const api = {
     request<ModificationJob>(`/api/modifications/${id}/cancel`, { method: "POST" }),
 
   graph: () => request<GraphData>("/api/graph"),
+
+  usage: (days = 30) => request<UsageResponse>(`/api/usage?days=${days}`),
 };

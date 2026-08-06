@@ -115,6 +115,7 @@ def ask(question: str) -> dict:
         max_tokens=2048,
         effort="medium",
         schema_name="answer",
+        operation="ask",
     )
     if data is None:
         return {"answer": "I can't help with that request.", "sources": []}

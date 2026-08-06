@@ -199,6 +199,7 @@ def reflect(*, dry_run: bool = False) -> dict:
         max_tokens=2048,
         effort="high",
         schema_name="reflection",
+        operation="reflect",
     )
     if data is None:
         return {

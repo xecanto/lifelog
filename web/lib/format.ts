@@ -64,3 +64,41 @@ export function formatMoney(amount: number, currency: string | null): string {
 export function titleCase(key: string): string {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+/**
+ * Model spend, at a precision you can act on.
+ *
+ * A month of personal use lands in cents, so rounding to $0.00 would show
+ * nothing at all. Sub-cent amounts keep enough decimals to stay non-zero;
+ * dollar amounts drop to two.
+ */
+export function formatUsd(amount: number): string {
+  if (amount === 0) return "$0.00";
+  if (amount < 0.01) return `$${amount.toFixed(4)}`;
+  if (amount < 1) return `$${amount.toFixed(3)}`;
+  return `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Token counts, which run to millions — 1.2M reads faster than 1,234,567. */
+export function formatCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}K`;
+  return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 2 : 1)}M`;
+}
+
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** A short local timestamp for log rows. */
+export function formatTimestamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}

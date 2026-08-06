@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import type { CategoryCount, Entry } from "@/lib/types";
 import EntryCard from "@/components/EntryCard";
+import SubNav from "@/components/SubNav";
+import { PageHeader } from "@/components/ui";
+import { LIBRARY_TABS } from "@/lib/nav";
 import { secondaryBtn, textInput } from "@/lib/ui";
 
 const PAGE_SIZE = 30;
@@ -54,6 +57,11 @@ export default function LibraryPage() {
 
   return (
     <div>
+      <SubNav tabs={LIBRARY_TABS} />
+      <PageHeader
+        title="Library"
+        description="Everything you've saved, newest first."
+      />
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <select value={category} onChange={(e) => setCategory(e.target.value)} className="rounded-lg border border-border bg-surface px-3 py-2 text-sm">
           <option value="">All categories</option>

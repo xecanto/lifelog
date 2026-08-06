@@ -139,6 +139,7 @@ app/                 FastAPI backend
   graph.py             Builds the knowledge graph (entries + tags + TF-IDF edges)
   skills.py            Loads skills/*.md from disk (no hardcoded skill list)
   prompts.py           Loads prompts/*.md from disk (no hardcoded prompt strings)
+  pricing.py           Per-model token rates, so usage can be costed
   claude_client.py     Anthropic client helper
   ingest/               One module per source type (text, files, links, images, voice)
 skills/                Skill definitions (markdown + YAML frontmatter) -- see below
@@ -158,8 +159,13 @@ web/                  Next.js frontend (App Router)
     graph/               3D force-directed knowledge graph (lazy-loaded, client-only)
     skills/               Read-only view of whatever's in the backend's skills/ dir
     system/               Self-modification settings + the modification job queue
-  components/           Shared UI (EntryCard, EntryDetail, Modal, Graph3D, VoiceRecorder, ...)
-  lib/                  API client + shared types
+    usage/                Token and dollar spend per model, per feature, over time
+  components/
+    ui.tsx                Design-system primitives (Card, Button, Badge, StatTile, ...)
+    charts.tsx            Usage charts -- CVD-validated colours, no external chart lib
+    Nav.tsx / SubNav.tsx  Top bar + the tabs that group related pages
+    ...                   EntryCard, EntryDetail, Modal, Graph3D, FacetCard, ...
+  lib/                  API client, shared types, formatting, nav grouping
 ```
 
 ## Dynamic skills (nothing hardcoded)
@@ -383,6 +389,32 @@ the wrong API.
 Whoever operates that endpoint sees everything you capture — which, in this
 app, means account emails, spending, and personal documents. Only point it at
 something you'd trust with that.
+
+## Usage and spend
+
+Every model call is metered — provider, model, which feature made it, tokens in
+and out, cached tokens, latency, and cost — and lands on the **Usage** page
+(under the gear, alongside System and Skills).
+
+This matters more here than in most apps, because one capture is rarely one
+call: routing to skills, extracting them, matching against existing records,
+and asking a clarifying question are each their own request. The entry count
+tells you nothing about the bill; `/api/usage` does.
+
+- **Costing** lives in `app/pricing.py`, as dollars per million tokens keyed by
+  model. Cache reads are charged at 0.1× the input rate and 5-minute cache
+  writes at 1.25×, matching Anthropic's own multipliers.
+- **A model with no rate on file costs `NULL`, not `0`.** Its tokens and calls
+  still show up; only the money column stays blank, and the page says how many
+  calls are excluded. A missing rate should look missing, not free.
+- **Rates drift.** Override one without touching code:
+
+  ```sh
+  LIFELOG_PRICE_CLAUDE_OPUS_5=5,25      # input,output — dollars per 1M tokens
+  ```
+
+  The non-Anthropic rates shipped in `pricing.py` are best-effort and are the
+  ones most worth overriding if the number matters to you.
 
 ## Self-modification
 

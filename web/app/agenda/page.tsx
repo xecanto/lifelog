@@ -1,14 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Agenda, Facet, FacetStatus, SpendSummary } from "@/lib/types";
 import FacetCard from "@/components/FacetCard";
+import { Button, Card, EmptyState, PageHeader, Skeleton, StatGrid, StatTile } from "@/components/ui";
 import { formatMoney } from "@/lib/format";
 
 const WINDOWS = [7, 30, 90, 365];
 
-function Section({
+function windowLabel(days: number): string {
+  return days === 365 ? "1 year" : `${days} days`;
+}
+
+function Group({
   title,
   facets,
   overdue,
@@ -21,8 +27,12 @@ function Section({
 }) {
   if (!facets.length) return null;
   return (
-    <section className="mb-6">
-      <h2 className={`mb-2.5 text-sm font-semibold uppercase tracking-wide ${overdue ? "text-danger" : "text-muted"}`}>
+    <section className="mb-7">
+      <h2
+        className={`mb-3 text-sm font-semibold tracking-wide uppercase ${
+          overdue ? "text-danger" : "text-muted"
+        }`}
+      >
         {title} ({facets.length})
       </h2>
       <div className="flex flex-col gap-2.5">
@@ -31,27 +41,6 @@ function Section({
         ))}
       </div>
     </section>
-  );
-}
-
-function SpendCard({ spend }: { spend: SpendSummary }) {
-  const currencies = Object.entries(spend.monthly_by_currency);
-  if (!currencies.length) return null;
-  return (
-    <div className="mb-6 rounded-[10px] border border-border bg-surface p-4 shadow-sm">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Recurring, per month</h2>
-      <div className="mt-2 flex flex-wrap items-baseline gap-4">
-        {currencies.map(([currency, total]) => (
-          <span key={currency} className="text-xl font-bold">
-            {formatMoney(total, currency)}
-          </span>
-        ))}
-      </div>
-      <p className="mt-1.5 text-xs text-muted">
-        Across {spend.counted} subscription{spend.counted === 1 ? "" : "s"}
-        {spend.unpriced > 0 && ` · ${spend.unpriced} with no price recorded`}
-      </p>
-    </div>
   );
 }
 
@@ -93,44 +82,114 @@ export default function AgendaPage() {
             due_today: prev.due_today.filter((f) => f.id !== id),
             upcoming: prev.upcoming.filter((f) => f.id !== id),
           }
-        : prev
+        : prev,
     );
   }, []);
 
   const total = agenda ? agenda.overdue.length + agenda.due_today.length + agenda.upcoming.length : 0;
+  const monthlySpend = spend ? Object.entries(spend.monthly_by_currency) : [];
 
   return (
-    <div>
-      <div className="mb-4 flex flex-wrap items-center gap-1.5">
-        {WINDOWS.map((w) => (
-          <button
-            key={w}
-            onClick={() => setDays(w)}
-            className={`rounded-full border px-3.5 py-1.5 text-sm cursor-pointer ${
-              days === w ? "border-accent font-semibold text-accent" : "border-border text-muted"
-            }`}
-          >
-            {w === 365 ? "1 year" : `${w} days`}
-          </button>
-        ))}
-      </div>
+    <>
+      <PageHeader
+        title="Today"
+        description="What's due, what's overdue, and what's coming up."
+        actions={
+          <div className="inline-flex rounded-lg border border-border bg-surface-sunken p-1">
+            {WINDOWS.map((option) => (
+              <button
+                key={option}
+                onClick={() => setDays(option)}
+                className={`cursor-pointer rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                  days === option
+                    ? "bg-surface text-foreground shadow-soft"
+                    : "text-muted hover:text-foreground"
+                }`}
+              >
+                {option === 365 ? "1y" : `${option}d`}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
-      {spend && <SpendCard spend={spend} />}
+      {/* The numbers worth knowing before reading a single card. */}
+      {agenda && (
+        <div className="mb-7">
+          <StatGrid>
+            <StatTile
+              label="Overdue"
+              value={agenda.overdue.length}
+              hint={agenda.overdue.length ? "Needs attention" : "All clear"}
+              tone={agenda.overdue.length ? "danger" : "success"}
+            />
+            <StatTile label="Due today" value={agenda.due_today.length} />
+            <StatTile label={`Next ${windowLabel(days)}`} value={agenda.upcoming.length} />
+            <StatTile
+              label="Recurring / mo"
+              value={
+                monthlySpend.length
+                  ? monthlySpend.map(([code, amount]) => formatMoney(amount, code)).join(" · ")
+                  : "—"
+              }
+              hint={
+                spend && spend.counted
+                  ? `${spend.counted} subscription${spend.counted === 1 ? "" : "s"}${
+                      spend.unpriced ? ` · ${spend.unpriced} unpriced` : ""
+                    }`
+                  : "No subscriptions tracked"
+              }
+            />
+          </StatGrid>
+        </div>
+      )}
 
-      {loading ? (
-        <p className="text-sm text-muted">Loading...</p>
-      ) : !agenda || total === 0 ? (
-        <p className="text-sm text-muted">
-          Nothing due in the next {days} days. Anything you save with a date — a renewal, a deadline, a
-          reminder, an expiring document — shows up here.
-        </p>
-      ) : (
+      {loading && !agenda && (
+        <div className="space-y-2.5">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-20" />
+          ))}
+        </div>
+      )}
+
+      {agenda && total === 0 && (
+        <EmptyState
+          icon="🗓️"
+          title={`Nothing due in the next ${windowLabel(days)}`}
+          description="Anything you save with a date — a renewal, a deadline, a reminder, an expiring document — comes back to you here."
+          action={
+            <Link href="/add">
+              <Button>Capture something</Button>
+            </Link>
+          }
+        />
+      )}
+
+      {agenda && total > 0 && (
         <>
-          <Section title="Overdue" facets={agenda.overdue} overdue onStatusChange={handleStatusChange} />
-          <Section title="Today" facets={agenda.due_today} onStatusChange={handleStatusChange} />
-          <Section title="Upcoming" facets={agenda.upcoming} onStatusChange={handleStatusChange} />
+          <Group title="Overdue" facets={agenda.overdue} overdue onStatusChange={handleStatusChange} />
+          <Group title="Today" facets={agenda.due_today} onStatusChange={handleStatusChange} />
+          <Group title="Upcoming" facets={agenda.upcoming} onStatusChange={handleStatusChange} />
         </>
       )}
-    </div>
+
+      {agenda && total > 0 && (
+        <Card className="mt-2 flex flex-wrap items-center justify-between gap-3 bg-surface-raised">
+          <p className="text-sm text-muted">Looking for something that isn&apos;t dated?</p>
+          <div className="flex gap-2">
+            <Link href="/library">
+              <Button variant="secondary" size="sm">
+                Browse library
+              </Button>
+            </Link>
+            <Link href="/ask">
+              <Button variant="secondary" size="sm">
+                Ask a question
+              </Button>
+            </Link>
+          </div>
+        </Card>
+      )}
+    </>
   );
 }

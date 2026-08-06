@@ -88,6 +88,7 @@ def _select_skills(raw_text: str, source_type: str) -> list[str]:
             max_tokens=300,
             effort="low",
             schema_name="skill_selection",
+            operation="route",
         )
     except llm.LLMError:
         # Routing is a convenience -- a provider hiccup shouldn't stop the
@@ -217,6 +218,7 @@ def organize(
         max_tokens=4096,
         effort="medium",
         schema_name="entry_organization",
+        operation="organize",
     )
     if data is None:
         return _fallback(raw_text, ids)

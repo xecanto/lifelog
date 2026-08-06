@@ -6,6 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import type { Entry } from "@/lib/types";
 import StatusMessage from "@/components/StatusMessage";
 import ClarifyPanel from "@/components/ClarifyPanel";
+import { Badge, Card, PageHeader } from "@/components/ui";
 import { titleCase } from "@/lib/format";
 import { primaryBtn, secondaryBtn } from "@/lib/ui";
 
@@ -124,6 +125,10 @@ export default function AddPage() {
 
   return (
     <div>
+      <PageHeader
+        title="Capture"
+        description="One box for everything. Type it, paste it, drop a file, or record a memo — the assistant works out what it is."
+      />
       <div
         onDrop={handleDrop}
         onDragOver={(e) => {
@@ -131,11 +136,13 @@ export default function AddPage() {
           setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
-        className={`rounded-[10px] border bg-surface p-4 shadow-sm ${dragging ? "border-accent" : "border-border"}`}
+        className={`rounded-lg border-2 bg-surface p-4 shadow-soft transition ${
+          dragging ? "border-dashed border-accent bg-accent-soft/40" : "border-border"
+        }`}
       >
         <textarea
-          className="w-full resize-y bg-transparent text-sm outline-none"
-          rows={6}
+          className="w-full resize-y bg-transparent text-sm outline-none placeholder:text-subtle"
+          rows={7}
           placeholder="Anything — a thought, a link, what you just signed up for… or drop a file, paste a screenshot, or record a memo."
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -191,20 +198,18 @@ export default function AddPage() {
       <StatusMessage text={status.text} kind={status.kind} />
 
       {saved && (
-        <div className="mt-4 rounded-[10px] border border-border bg-surface p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Saved</p>
+        <Card className="mt-4">
+          <p className="text-xs font-semibold tracking-wide text-muted uppercase">Saved</p>
           <Link href={`/library/${saved.id}`} className="mt-1 block font-semibold text-accent">
             {saved.title}
           </Link>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            <span className="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent">
-              {saved.category}
-            </span>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <Badge tone="accent">{saved.category}</Badge>
             {saved.facets.map((f) => (
-              <span key={f.id} className="rounded-full border border-border px-2 py-0.5 text-xs text-muted">
+              <Badge key={f.id}>
                 {f.kind}
                 {f.due_at ? ` · ${f.due_at.slice(0, 10)}` : ""}
-              </span>
+              </Badge>
             ))}
           </div>
           {saved.summary && <p className="mt-2 text-sm text-muted">{saved.summary}</p>}
@@ -228,7 +233,7 @@ export default function AddPage() {
               ))}
             </div>
           )}
-        </div>
+        </Card>
       )}
 
       {saved && <ClarifyPanel questions={saved.pending_questions ?? []} onAnswered={setSaved} />}

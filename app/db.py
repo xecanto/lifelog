@@ -147,6 +147,29 @@ CREATE TABLE IF NOT EXISTS facet_revisions (
 );
 
 CREATE INDEX IF NOT EXISTS facet_revisions_facet_idx ON facet_revisions(facet_id);
+
+-- Every model call, with what it cost. Organizing one capture can be several
+-- calls across several skills, so "how much am I spending on this thing" is
+-- not answerable from the entry count -- it needs the calls themselves.
+-- cost_usd is NULL, not 0, when the model has no known rate (app/pricing.py).
+CREATE TABLE IF NOT EXISTS llm_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    operation TEXT NOT NULL DEFAULT 'other',
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    ok INTEGER NOT NULL DEFAULT 1,
+    error TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS llm_calls_created_idx ON llm_calls(created_at);
+CREATE INDEX IF NOT EXISTS llm_calls_operation_idx ON llm_calls(operation);
 """
 
 # Facet lifecycle. Anything time-bound stays `open` until you act on it --
@@ -699,6 +722,131 @@ def list_entries_by_skill(skill: str, limit: int = 40) -> list[dict]:
             "SELECT * FROM entries WHERE skill = ? ORDER BY id DESC LIMIT ?", (skill, limit)
         )
         return [row_to_dict(r) for r in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# Model usage
+# ---------------------------------------------------------------------------
+
+
+def log_llm_call(
+    *,
+    provider: str,
+    model: str,
+    operation: str,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    cost_usd: float | None = None,
+    duration_ms: int = 0,
+    ok: bool = True,
+    error: str = "",
+) -> None:
+    """Record one model call.
+
+    Never raises, for the same reason `log_event` doesn't: accounting must not
+    be able to fail the work it is accounting for.
+    """
+    try:
+        with db_cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO llm_calls (
+                    created_at, provider, model, operation, input_tokens, output_tokens,
+                    cache_read_tokens, cache_write_tokens, cost_usd, duration_ms, ok, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    now_iso(),
+                    provider,
+                    model,
+                    operation,
+                    input_tokens,
+                    output_tokens,
+                    cache_read_tokens,
+                    cache_write_tokens,
+                    cost_usd,
+                    duration_ms,
+                    1 if ok else 0,
+                    error[:500],
+                ),
+            )
+    except sqlite3.Error:
+        pass
+
+
+_USAGE_COLUMNS = """
+    COUNT(*) AS calls,
+    COALESCE(SUM(input_tokens), 0) AS input_tokens,
+    COALESCE(SUM(output_tokens), 0) AS output_tokens,
+    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+    COALESCE(SUM(cost_usd), 0) AS cost_usd,
+    COALESCE(SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END), 0) AS failed,
+    COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END), 0) AS unpriced
+"""
+
+
+def usage_summary(*, since: str | None = None) -> dict:
+    """Totals across every call, optionally from `since` (ISO) onwards."""
+    with db_cursor() as cur:
+        if since:
+            cur.execute(f"SELECT {_USAGE_COLUMNS} FROM llm_calls WHERE created_at >= ?", (since,))
+        else:
+            cur.execute(f"SELECT {_USAGE_COLUMNS} FROM llm_calls")
+        return dict(cur.fetchone())
+
+
+def usage_by(field: str, *, since: str | None = None, limit: int = 20) -> list[dict]:
+    """Totals grouped by one column -- `model`, `operation`, or `provider`.
+
+    `field` is checked against a fixed set rather than interpolated blindly:
+    it reaches SQL as a column name, where a bound parameter can't go.
+    """
+    if field not in ("model", "operation", "provider"):
+        raise ValueError(f"cannot group usage by {field!r}")
+
+    with db_cursor() as cur:
+        where = "WHERE created_at >= ?" if since else ""
+        params: tuple = (since, limit) if since else (limit,)
+        cur.execute(
+            f"""
+            SELECT {field} AS name, {_USAGE_COLUMNS}
+            FROM llm_calls {where}
+            GROUP BY {field}
+            ORDER BY cost_usd DESC, calls DESC
+            LIMIT ?
+            """,
+            params,
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def usage_daily(*, days: int = 30) -> list[dict]:
+    """One row per day, oldest first, for the spend-over-time chart.
+
+    Days with no calls are absent -- the frontend fills the gaps, since it
+    already knows the window it asked for.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT substr(created_at, 1, 10) AS day, {_USAGE_COLUMNS}
+            FROM llm_calls
+            WHERE created_at >= date('now', ?)
+            GROUP BY day
+            ORDER BY day ASC
+            """,
+            (f"-{max(int(days), 1)} days",),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def list_llm_calls(*, limit: int = 50) -> list[dict]:
+    with db_cursor() as cur:
+        cur.execute("SELECT * FROM llm_calls ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(row) for row in cur.fetchall()]
 
 
 def reconcile_running_jobs() -> int:

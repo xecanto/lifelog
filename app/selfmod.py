@@ -220,6 +220,7 @@ def _run_skill_job(job: dict) -> str:
         max_tokens=2048,
         effort="medium",
         schema_name="authored_skill",
+        operation="author_skill",
     )
     if data is None:
         raise ValueError("The model declined to write this skill")
